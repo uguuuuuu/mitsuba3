@@ -167,6 +167,9 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
      */
     Float boundary_test;
 
+    /// Differential area of the point
+    Float dA;
+
     //! @}
     // =============================================================
 

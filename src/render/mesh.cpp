@@ -642,6 +642,11 @@ Mesh<Float, Spectrum>::compute_surface_interaction(const Ray3f &ray,
             p1 = vertex_position(fi[1], active),
             p2 = vertex_position(fi[2], active);
 
+    // Compute the differential area which, in the case of triangle meshes, is the area of the triangle
+    Vector3f dp0 = p1 - p0,
+             dp1 = p2 - p0;
+    Float dA = dr::norm(dr::cross(dp0, dp1));
+
     Float t = pi.t;
     Point2f prim_uv = pi.prim_uv;
 
@@ -692,10 +697,12 @@ Mesh<Float, Spectrum>::compute_surface_interaction(const Ray3f &ray,
           b2 = prim_uv.y(),
           b0 = 1.f - b1 - b2;
 
-    Vector3f dp0 = p1 - p0,
-             dp1 = p2 - p0;
+    dp0 = p1 - p0;
+    dp1 = p2 - p0;
 
     SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+
+    si.dA = dA;
 
     // Re-interpolate intersection using barycentric coordinates
     si.p = dr::fmadd(p0, b0, dr::fmadd(p1, b1, p2 * b2));
