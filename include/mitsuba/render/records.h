@@ -59,6 +59,9 @@ struct PositionSample {
     /// Set if the sample was drawn from a degenerate (Dirac delta) distribution
     Mask delta;
 
+    /// Differential area of the point
+    Float dA;
+
     //! @}
     // =============================================================
 
@@ -75,17 +78,17 @@ struct PositionSample {
      */
     PositionSample(const SurfaceInteraction3f &si)
         : p(si.p), n(si.sh_frame.n), uv(si.uv), time(si.time), pdf(0.f),
-          delta(false) { }
+          delta(false), dA(si.dA) { }
 
     /// Basic field constructor
     PositionSample(const Point3f &p, const Normal3f &n, const Point2f &uv,
-                   Float time, Float pdf, Mask delta)
-        : p(p), n(n), uv(uv), time(time), pdf(pdf), delta(delta) { }
+                   Float time, Float pdf, Mask delta, Float dA=1.f)
+        : p(p), n(n), uv(uv), time(time), pdf(pdf), delta(delta), dA(dA) { }
 
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(PositionSample, p, n, uv, time, pdf, delta)
+    DRJIT_STRUCT(PositionSample, p, n, uv, time, pdf, delta, dA)
 };
 
 // -----------------------------------------------------------------------------
@@ -114,7 +117,7 @@ struct DirectionSample : public PositionSample<Float_, Spectrum_> {
     using Float    = Float_;
     using Spectrum = Spectrum_;
 
-    MI_IMPORT_BASE(PositionSample, p, n, uv, time, pdf, delta)
+    MI_IMPORT_BASE(PositionSample, p, n, uv, time, pdf, delta, dA)
     MI_IMPORT_RENDER_BASIC_TYPES()
 
     using Interaction3f        = typename RenderAliases::Interaction3f;
@@ -191,7 +194,7 @@ struct DirectionSample : public PositionSample<Float_, Spectrum_> {
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(DirectionSample, p, n, uv, time, pdf, delta, d, dist, emitter)
+    DRJIT_STRUCT(DirectionSample, p, n, uv, time, pdf, delta, dA, d, dist, emitter)
 };
 
 // -----------------------------------------------------------------------------

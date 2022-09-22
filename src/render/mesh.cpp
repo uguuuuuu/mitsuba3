@@ -536,6 +536,8 @@ Mesh<Float, Spectrum>::sample_position(Float time, const Point2f &sample_, Mask 
     ps.pdf   = m_area_pmf.normalization();
     ps.delta = false;
 
+    ps.dA = dr::norm(dr::cross(e0, e1));
+
     if (has_vertex_texcoords()) {
         Point2f uv0 = vertex_texcoord(fi[0], active),
                 uv1 = vertex_texcoord(fi[1], active),
