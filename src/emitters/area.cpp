@@ -139,6 +139,7 @@ public:
             ds.p = si.p;
             ds.n = si.n;
             ds.uv = si.uv;
+            ds.dA = si.dA;
             ds.time = it.time;
             ds.delta = false;
             ds.d = ds.p - it.p;
