@@ -43,6 +43,9 @@ struct Interaction {
     /// Geometric normal (only valid for \c SurfaceInteraction)
     Normal3f n;
 
+    /// Jacobian of the surface motion
+    Float J = 1.f;
+
     //! @}
     // =============================================================
 
@@ -52,8 +55,8 @@ struct Interaction {
 
     /// Constructor
     Interaction(Float t, Float time, const Wavelength &wavelengths,
-                const Point3f &p, const Normal3f &n = 0.f)
-        : t(t), time(time), wavelengths(wavelengths), p(p), n(n) { }
+                const Point3f &p, const Normal3f &n = 0.f, Float J = 1.f)
+        : t(t), time(time), wavelengths(wavelengths), p(p), n(n), J(J) { }
 
     /**
      * This callback method is invoked by dr::zeros<>, and takes care of fields that deviate
@@ -87,7 +90,7 @@ struct Interaction {
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(Interaction, t, time, wavelengths, p, n);
+    DRJIT_STRUCT(Interaction, t, time, wavelengths, p, n, J);
 
 private:
     /**
@@ -116,7 +119,7 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
     using Spectrum = Spectrum_;
 
     // Make parent fields/functions visible
-    MI_IMPORT_BASE(Interaction, t, time, wavelengths, p, n, is_valid)
+    MI_IMPORT_BASE(Interaction, t, time, wavelengths, p, n, J, is_valid)
 
     MI_IMPORT_RENDER_BASIC_TYPES()
     MI_IMPORT_OBJECT_TYPES()
@@ -183,7 +186,7 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
      */
     explicit SurfaceInteraction(const PositionSample3f &ps,
                                 const Wavelength &wavelengths)
-        : Base(0.f, ps.time, wavelengths, ps.p, ps.n), uv(ps.uv),
+        : Base(0.f, ps.time, wavelengths, ps.p, ps.n, ps.J), uv(ps.uv),
           sh_frame(Frame3f(ps.n)), dp_du(0), dp_dv(0), dn_du(0), dn_dv(0),
           duv_dx(0), duv_dy(0), wi(0), prim_index(0), boundary_test(0) {}
 
@@ -399,7 +402,7 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(SurfaceInteraction, t, time, wavelengths, p, n, shape, uv,
+    DRJIT_STRUCT(SurfaceInteraction, t, time, wavelengths, p, n, J, shape, uv,
                  sh_frame, dp_du, dp_dv, dn_du, dn_dv, duv_dx,
                  duv_dy, wi, prim_index, instance, boundary_test)
 };
@@ -420,7 +423,7 @@ struct MediumInteraction : Interaction<Float_, Spectrum_> {
     using Index = typename CoreAliases::UInt32;
 
     // Make parent fields/functions visible
-    MI_IMPORT_BASE(Interaction, t, time, wavelengths, p, n, is_valid)
+    MI_IMPORT_BASE(Interaction, t, time, wavelengths, p, n, J, is_valid)
     //! @}
     // =============================================================
 
@@ -464,7 +467,7 @@ struct MediumInteraction : Interaction<Float_, Spectrum_> {
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(MediumInteraction, t, time, wavelengths, p, n, medium,
+    DRJIT_STRUCT(MediumInteraction, t, time, wavelengths, p, n, J, medium,
                  sh_frame, wi, sigma_s, sigma_n, sigma_t,
                  combined_extinction, mint)
 };
@@ -517,6 +520,13 @@ enum class RayFlags : uint32_t {
 
     /// Derivatives of the SurfaceInteraction fields ignore shape's motion
     DetachShape = 0x100,
+
+    // =============================================================
+    //!          Differential path integral compute flags
+    // =============================================================
+
+    /// Jacobian of the shape's motion
+    Jacobian = 0x200,
 
     // =============================================================
     //!                 Compound compute flags

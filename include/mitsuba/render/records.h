@@ -59,6 +59,9 @@ struct PositionSample {
     /// Set if the sample was drawn from a degenerate (Dirac delta) distribution
     Mask delta;
 
+    /// Jacobian of the surface motion
+    Float J = 1.f;
+
     //! @}
     // =============================================================
 
@@ -75,17 +78,17 @@ struct PositionSample {
      */
     PositionSample(const SurfaceInteraction3f &si)
         : p(si.p), n(si.sh_frame.n), uv(si.uv), time(si.time), pdf(0.f),
-          delta(false) { }
+          delta(false), J(si.J) { }
 
     /// Basic field constructor
     PositionSample(const Point3f &p, const Normal3f &n, const Point2f &uv,
-                   Float time, Float pdf, Mask delta)
-        : p(p), n(n), uv(uv), time(time), pdf(pdf), delta(delta) { }
+                   Float time, Float pdf, Mask delta, Float J = 1.f)
+        : p(p), n(n), uv(uv), time(time), pdf(pdf), delta(delta), J(J) { }
 
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(PositionSample, p, n, uv, time, pdf, delta)
+    DRJIT_STRUCT(PositionSample, p, n, uv, time, pdf, delta, J)
 };
 
 // -----------------------------------------------------------------------------
@@ -114,7 +117,7 @@ struct DirectionSample : public PositionSample<Float_, Spectrum_> {
     using Float    = Float_;
     using Spectrum = Spectrum_;
 
-    MI_IMPORT_BASE(PositionSample, p, n, uv, time, pdf, delta)
+    MI_IMPORT_BASE(PositionSample, p, n, uv, time, pdf, delta, J)
     MI_IMPORT_RENDER_BASIC_TYPES()
 
     using Interaction3f        = typename RenderAliases::Interaction3f;
@@ -182,8 +185,9 @@ struct DirectionSample : public PositionSample<Float_, Spectrum_> {
     /// Element-by-element constructor
     DirectionSample(const Point3f &p, const Normal3f &n, const Point2f &uv,
                     const Float &time, const Float &pdf, const Mask &delta,
-                    const Vector3f &d, const Float &dist, const EmitterPtr &emitter)
-        : Base(p, n, uv, time, pdf, delta), d(d), dist(dist), emitter(emitter) { }
+                    const Vector3f &d, const Float &dist, const EmitterPtr &emitter,
+                    const Float &J = 1.f)
+        : Base(p, n, uv, time, pdf, delta, J), d(d), dist(dist), emitter(emitter) { }
 
     /// Construct from a position sample
     DirectionSample(const Base &base) : Base(base) { }
@@ -191,7 +195,7 @@ struct DirectionSample : public PositionSample<Float_, Spectrum_> {
     //! @}
     // =============================================================
 
-    DRJIT_STRUCT(DirectionSample, p, n, uv, time, pdf, delta, d, dist, emitter)
+    DRJIT_STRUCT(DirectionSample, p, n, uv, time, pdf, delta, J, d, dist, emitter)
 };
 
 // -----------------------------------------------------------------------------
