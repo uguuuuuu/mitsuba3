@@ -24,6 +24,7 @@ def test01_position_sample_construction_single(variant_scalar_rgb):
   time = 0,
   pdf = 0.002,
   delta = 0,
+  J = 1,
 ]"""
 
     # SurfaceInteraction constructor
@@ -63,6 +64,7 @@ def test02_position_sample_construction_vec(variants_vec_backends_once):
   time = [0, 0.5, 0.7, 1, 1.5],
   pdf = [0, 0, 0, 0, 0],
   delta = [0, 0, 0, 0, 0],
+  J = [1, 1, 1, 1, 1],
 ]""" in str(records)
 
     # SurfaceInteraction constructor
@@ -90,6 +92,7 @@ def test04_direction_sample_construction_single(variant_scalar_rgb):
   time = 0,
   pdf = 0.002,
   delta = 0,
+  J = 1,
   emitter = nullptr,
   d = [0, 42, -1],
   dist = 0.13

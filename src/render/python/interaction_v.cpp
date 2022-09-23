@@ -15,11 +15,12 @@ MI_PY_EXPORT(Interaction) {
         .def_field(Interaction3f, wavelengths, D(Interaction, wavelengths))
         .def_field(Interaction3f, p,           D(Interaction, p))
         .def_field(Interaction3f, n,           D(Interaction, n))
+        .def_field(Interaction3f, J,           D(Interaction, J))
         // Methods
         .def(py::init<>(), D(Interaction, Interaction))
         .def(py::init<const Interaction3f &>(), "Copy constructor")
-        .def(py::init<Float, Float, Wavelength, Point3f, Normal3f>(),
-             "t"_a, "time"_a, "wavelengths"_a, "p"_a, "n"_a = 0,
+        .def(py::init<Float, Float, Wavelength, Point3f, Normal3f, Float>(),
+             "t"_a, "time"_a, "wavelengths"_a, "p"_a, "n"_a = 0, "J"_a = 1,
              D(Interaction, Interaction, 2))
         .def("zero_",        &Interaction3f::zero_, "size"_a = 1)
         .def("spawn_ray",    &Interaction3f::spawn_ray, "d"_a,    D(Interaction, spawn_ray))
@@ -28,7 +29,7 @@ MI_PY_EXPORT(Interaction) {
         .def("zero_",        &Interaction3f::zero_, D(Interaction, zero))
         .def_repr(Interaction3f);
 
-    MI_PY_DRJIT_STRUCT(it, Interaction3f, t, time, wavelengths, p, n)
+    MI_PY_DRJIT_STRUCT(it, Interaction3f, t, time, wavelengths, p, n, J)
 }
 
 MI_PY_EXPORT(SurfaceInteraction) {
@@ -90,7 +91,7 @@ MI_PY_EXPORT(SurfaceInteraction) {
             D(SurfaceInteraction, has_n_partials))
         .def_repr(SurfaceInteraction3f);
 
-    MI_PY_DRJIT_STRUCT(si, SurfaceInteraction3f, t, time, wavelengths, p, n,
+    MI_PY_DRJIT_STRUCT(si, SurfaceInteraction3f, t, time, wavelengths, p, n, J,
                        shape, uv, sh_frame, dp_du, dp_dv, dn_du, dn_dv, duv_dx,
                        duv_dy, wi, prim_index, instance, boundary_test)
 }
@@ -117,7 +118,7 @@ MI_PY_EXPORT(MediumInteraction) {
         .def("to_local", &MediumInteraction3f::to_local, "v"_a, D(MediumInteraction, to_local))
         .def_repr(MediumInteraction3f);
 
-    MI_PY_DRJIT_STRUCT(mi, MediumInteraction3f, t, time, wavelengths, p, n,
+    MI_PY_DRJIT_STRUCT(mi, MediumInteraction3f, t, time, wavelengths, p, n, J,
                         medium, sh_frame, wi, sigma_s, sigma_n, sigma_t,
                         combined_extinction, mint)
 }

@@ -51,6 +51,7 @@ def test02_intersection_construction(variant_scalar_rgb):
   ],
   dp_du = [18, 19, 20],
   dp_dv = [21, 22, 23],
+  J = 1,
   dn_du = [18, 19, 20],
   dn_dv = [21, 22, 23],
   duv_dx = [24, 25],

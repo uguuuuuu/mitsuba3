@@ -65,6 +65,7 @@ struct Interaction {
      */
     void zero_(size_t size = 1) {
         t = dr::full<Float>(dr::Infinity<Float>, size);
+        J = dr::full<Float>(1.f, size);
     }
 
     /// Is the current interaction valid?
@@ -640,6 +641,7 @@ struct PreliminaryIntersection {
                 SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
                 si.wi = -ray.d;
                 si.wavelengths = ray.wavelengths;
+                si.J = 1.f;
                 return si;
             }
 
@@ -650,6 +652,7 @@ struct PreliminaryIntersection {
                 target->compute_surface_interaction(ray, *this, ray_flags, 0u, active);
 
             dr::masked(si.t, !active) = dr::Infinity<Float>;
+            dr::masked(si.J, !active) = 1.f;
             active &= si.is_valid();
 
             dr::masked(si.shape,    !active) = nullptr;
@@ -714,7 +717,8 @@ std::ostream &operator<<(std::ostream &os, const SurfaceInteraction<Float, Spect
            << "  n = " << string::indent(it.n, 6) << "," << std::endl
            << "  sh_frame = " << string::indent(it.sh_frame, 2) << "," << std::endl
            << "  dp_du = " << string::indent(it.dp_du, 10) << "," << std::endl
-           << "  dp_dv = " << string::indent(it.dp_dv, 10) << "," << std::endl;
+           << "  dp_dv = " << string::indent(it.dp_dv, 10) << "," << std::endl
+           << "  J = " << it.J << "," << std::endl;
 
         if (it.has_n_partials())
             os << "  dn_du = " << string::indent(it.dn_du, 11) << "," << std::endl

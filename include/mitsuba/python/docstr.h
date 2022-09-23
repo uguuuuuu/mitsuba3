@@ -3427,6 +3427,8 @@ static const char *__doc_mitsuba_Interaction_is_valid = R"doc(Is the current int
 
 static const char *__doc_mitsuba_Interaction_n = R"doc(Geometric normal (only valid for ``SurfaceInteraction``))doc";
 
+static const char *__doc_mitsuba_Interaction_J = R"doc(Jacobian of the surface motion)doc";
+
 static const char *__doc_mitsuba_Interaction_offset_p =
 R"doc(Compute an offset position, used when spawning a ray from this
 interaction. When the interaction is on the surface of a shape, the
@@ -4923,9 +4925,13 @@ static const char *__doc_mitsuba_PositionSample_apply_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_PositionSample_apply_label = R"doc()doc";
 
+static const char *__doc_mitsuba_PositionSample_zero = R"doc()doc";
+
 static const char *__doc_mitsuba_PositionSample_delta =
 R"doc(Set if the sample was drawn from a degenerate (Dirac delta)
 distribution)doc";
+
+static const char *__doc_mitsuba_PositionSample_J = R"doc(Jacobian of surface motion)doc";
 
 static const char *__doc_mitsuba_PositionSample_n = R"doc(Sampled surface normal (if applicable))doc";
 
@@ -5527,6 +5533,8 @@ differentiable with respect to the shapes parameters.)doc";
 static const char *__doc_mitsuba_RayFlags_All = R"doc(//! Compound compute flags)doc";
 
 static const char *__doc_mitsuba_RayFlags_AllNonDifferentiable = R"doc(Compute all fields of the surface interaction ignoring shape's motion)doc";
+
+static const char *__doc_mitsuba_RayFlags_Jacobian = R"doc(Compute the Jacobian of the surface motion)doc";
 
 static const char *__doc_mitsuba_RayFlags_BoundaryTest = R"doc(Compute the boundary-test used in reparameterized integrators)doc";
 

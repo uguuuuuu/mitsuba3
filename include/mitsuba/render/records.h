@@ -85,6 +85,11 @@ struct PositionSample {
                    Float time, Float pdf, Mask delta, Float J = 1.f)
         : p(p), n(n), uv(uv), time(time), pdf(pdf), delta(delta), J(J) { }
 
+    /// Let dr::zeros<> set J = 1.f
+    void zero_(size_t size = 1) {
+        J = dr::full<Float>(1.f, size);
+    }
+
     //! @}
     // =============================================================
 
@@ -210,6 +215,7 @@ std::ostream &operator<<(std::ostream &os,
        << "  time = " << ps.time << "," << std::endl
        << "  pdf = " << ps.pdf << "," << std::endl
        << "  delta = " << ps.delta << "," << std::endl
+       << "  J = " << ps.J << "," << std::endl
        <<  "]";
     return os;
 }
@@ -224,6 +230,7 @@ std::ostream &operator<<(std::ostream &os,
        << "  time = " << ds.time << "," << std::endl
        << "  pdf = " << ds.pdf << "," << std::endl
        << "  delta = " << ds.delta << "," << std::endl
+       << "  J = " << ds.J << "," << std::endl
        << "  emitter = " << string::indent(ds.emitter) << "," << std::endl
        << "  d = " << string::indent(ds.d, 6) << "," << std::endl
        << "  dist = " << ds.dist << std::endl

@@ -386,6 +386,7 @@ public:
         ds.emitter = this;
         ds.d       = d;
         ds.dist    = dist;
+        ds.J       = 1.f;
 
         auto weight =
             depolarizer<Spectrum>(eval_spectrum(uv, it.wavelengths, active)) /
