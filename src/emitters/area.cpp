@@ -143,6 +143,8 @@ public:
             ds.delta = false;
             ds.d = ds.p - it.p;
 
+            ds.J = si.J;
+
             Float dist_squared = dr::squared_norm(ds.d);
             ds.dist = dr::sqrt(dist_squared);
             ds.d /= ds.dist;

@@ -535,6 +535,8 @@ Mesh<Float, Spectrum>::sample_position(Float time, const Point2f &sample_, Mask 
     ps.time  = time;
     ps.pdf   = m_area_pmf.normalization();
     ps.delta = false;
+    ps.J     = dr::norm(dr::cross(e0, e1));
+    ps.J    /= dr::detach(ps.J);
 
     if (has_vertex_texcoords()) {
         Point2f uv0 = vertex_texcoord(fi[0], active),
@@ -696,6 +698,11 @@ Mesh<Float, Spectrum>::compute_surface_interaction(const Ray3f &ray,
              dp1 = p2 - p0;
 
     SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+
+    if (has_flag(ray_flags, RayFlags::Jacobian)) {
+        si.J  = dr::norm(dr::cross(dp0, dp1));
+        si.J /= dr::detach(si.J);
+    }
 
     // Re-interpolate intersection using barycentric coordinates
     si.p = dr::fmadd(p0, b0, dr::fmadd(p1, b1, p2 * b2));
