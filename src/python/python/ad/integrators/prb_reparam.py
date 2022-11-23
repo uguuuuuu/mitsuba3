@@ -14,6 +14,20 @@ class PRBReparamIntegrator(RBIntegrator):
 
     .. pluginparameters::
 
+     * - max_depth
+       - |int|
+       - Specifies the longest path depth in the generated output image (where -1
+         corresponds to :math:`\infty`). A value of 1 will only render directly
+         visible light sources. 2 will lead to single-bounce (direct-only)
+         illumination, and so on. (Default: -1)
+
+     * - rr_depth
+       - |int|
+       - Specifies the path depth, at which the implementation will begin to use
+         the *russian roulette* path termination criterion. For example, if set to
+         1, then path generation many randomly cease after encountering directly
+         visible surfaces. (Default: 5)
+
      * - reparam_max_depth
        - |int|
        - Specifies the longest path depth for which the reparameterization
@@ -298,7 +312,7 @@ class PRBReparamIntegrator(RBIntegrator):
         # Initialize loop state variables caching the rays and preliminary
         # intersections of the previous (zero-initialized) and current vertex
         ray_prev = dr.zeros(mi.Ray3f)
-        ray_cur  = mi.Ray3f(ray)
+        ray_cur  = mi.Ray3f(dr.detach(ray))
         pi_prev  = dr.zeros(mi.PreliminaryIntersection3f)
         pi_cur   = scene.ray_intersect_preliminary(ray_cur, coherent=True,
                                                    active=active)

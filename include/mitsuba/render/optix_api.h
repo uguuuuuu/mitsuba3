@@ -25,6 +25,7 @@ using OptixAccelPropertyType = int;
 using OptixProgramGroupKind  = int;
 using OptixDeviceContext     = void*;
 using OptixTask              = void*;
+using OptixDenoiserStructPtr = void*;
 
 // =====================================================
 //            Commonly used OptiX constants
@@ -48,6 +49,8 @@ using OptixTask              = void*;
 #define OPTIX_COMPILE_OPTIMIZATION_LEVEL_0       0x2340
 #define OPTIX_COMPILE_DEBUG_LEVEL_NONE           0x2350
 #define OPTIX_COMPILE_DEBUG_LEVEL_MINIMAL        0x2351
+#define OPTIX_COMPILE_DEBUG_LEVEL_MODERATE       0x2353
+#define OPTIX_COMPILE_DEBUG_LEVEL_FULL           0x2352
 
 #define OPTIX_BUILD_FLAG_ALLOW_COMPACTION  2
 #define OPTIX_BUILD_FLAG_PREFER_FAST_TRACE 4
@@ -204,7 +207,6 @@ struct OptixProgramGroupHitgroup {
 struct OptixProgramGroupDesc {
     OptixProgramGroupKind kind;
     unsigned int flags;
-
     union {
         OptixProgramGroupSingleModule raygen;
         OptixProgramGroupSingleModule miss;
@@ -229,6 +231,62 @@ struct OptixShaderBindingTable {
     CUdeviceptr  callablesRecordBase;
     unsigned int callablesRecordStrideInBytes;
     unsigned int callablesRecordCount;
+};
+
+enum OptixPixelFormat {
+    OPTIX_PIXEL_FORMAT_HALF2  = 0x2207,
+    OPTIX_PIXEL_FORMAT_HALF3  = 0x2201,
+    OPTIX_PIXEL_FORMAT_HALF4  = 0x2202,
+    OPTIX_PIXEL_FORMAT_FLOAT2 = 0x2208,
+    OPTIX_PIXEL_FORMAT_FLOAT3 = 0x2203,
+    OPTIX_PIXEL_FORMAT_FLOAT4 = 0x2204,
+    OPTIX_PIXEL_FORMAT_UCHAR3 = 0x2205,
+    OPTIX_PIXEL_FORMAT_UCHAR4 = 0x2206
+};
+
+struct OptixImage2D {
+    CUdeviceptr data;
+    unsigned int width;
+    unsigned int height;
+    unsigned int rowStrideInBytes;
+    unsigned int pixelStrideInBytes;
+    OptixPixelFormat format;
+};
+
+enum OptixDenoiserModelKind {
+    OPTIX_DENOISER_MODEL_KIND_HDR = 0x2323,
+    OPTIX_DENOISER_MODEL_KIND_TEMPORAL = 0x2325
+};
+
+struct OptixDenoiserOptions {
+    unsigned int guideAlbedo;
+    unsigned int guideNormal;
+};
+
+struct OptixDenoiserSizes {
+    size_t stateSizeInBytes;
+    size_t withOverlapScratchSizeInBytes;
+    size_t withoutOverlapScratchSizeInBytes;
+    unsigned int overlapWindowSizeInPixels;
+};
+
+struct OptixDenoiserParams {
+    unsigned int denoiseAlpha;
+    CUdeviceptr hdrIntensity;
+    float blendFactor;
+    CUdeviceptr hdrAverageColor;
+};
+
+struct OptixDenoiserGuideLayer {
+    OptixImage2D albedo;
+    OptixImage2D normal;
+    OptixImage2D flow;
+};
+
+struct OptixDenoiserLayer {
+    OptixImage2D input;
+    OptixImage2D previousOutput;
+    OptixImage2D output;
 };
 
 // =====================================================
@@ -260,6 +318,19 @@ D(optixProgramGroupDestroy, OptixProgramGroup);
 D(optixSbtRecordPackHeader, OptixProgramGroup, void *);
 D(optixAccelCompact, OptixDeviceContext, CUstream, OptixTraversableHandle,
   CUdeviceptr, size_t, OptixTraversableHandle *);
+D(optixDenoiserCreate, OptixDeviceContext, OptixDenoiserModelKind,
+  const OptixDenoiserOptions *, OptixDenoiserStructPtr *);
+D(optixDenoiserDestroy, OptixDenoiserStructPtr);
+D(optixDenoiserComputeMemoryResources, const OptixDenoiserStructPtr,
+  unsigned int, unsigned int, OptixDenoiserSizes *);
+D(optixDenoiserSetup, OptixDenoiserStructPtr, CUstream, unsigned int,
+  unsigned int, CUdeviceptr, size_t, CUdeviceptr, size_t);
+D(optixDenoiserInvoke, OptixDenoiserStructPtr, CUstream,
+  const OptixDenoiserParams *, CUdeviceptr, size_t,
+  const OptixDenoiserGuideLayer *, const OptixDenoiserLayer *, unsigned int,
+  unsigned int, unsigned int, CUdeviceptr, size_t);
+D(optixDenoiserComputeIntensity, OptixDenoiserStructPtr, CUstream,
+  const OptixImage2D *inputImage, CUdeviceptr, CUdeviceptr, size_t);
 
 #undef D
 
