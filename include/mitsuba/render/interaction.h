@@ -56,6 +56,8 @@ enum class RayFlags : uint32_t {
     /// Derivatives of the SurfaceInteraction fields ignore shape's motion
     DetachShape = 0x100,
 
+    Jacobian = 0x200,
+
     // =============================================================
     //!                 Compound compute flags
     // =============================================================
@@ -485,6 +487,7 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
 
         dr::masked(shape, !active)    = nullptr;
         dr::masked(instance, !active) = nullptr;
+        dr::masked(J, !active)        = 1.f;
 
         prim_index  = pi.prim_index;
         time        = ray.time;
@@ -574,78 +577,6 @@ struct MediumInteraction : Interaction<Float_, Spectrum_> {
                  sh_frame, wi, sigma_s, sigma_n, sigma_t,
                  combined_extinction, mint)
 };
-
-// -----------------------------------------------------------------------------
-
-/**
- * \brief This list of flags is used to determine which members of \ref SurfaceInteraction
- * should be computed when calling \ref compute_surface_interaction().
- *
- * It also specifies whether the \ref SurfaceInteraction should be differentiable with
- * respect to the shapes parameters.
- */
-enum class RayFlags : uint32_t {
-
-    // =============================================================
-    //             Surface interaction compute flags
-    // =============================================================
-
-    /// No flags set
-    Empty = 0x0,
-
-    /// Compute position and geometric normal
-    Minimal = 0x1,
-
-    /// Compute UV coordinates
-    UV = 0x2,
-
-    /// Compute position partials wrt. UV coordinates
-    dPdUV = 0x4,
-
-    /// Compute shading normal and shading frame
-    ShadingFrame = 0x8,
-
-    /// Compute the geometric normal partials wrt. the UV coordinates
-    dNGdUV = 0x10,
-
-    /// Compute the shading normal partials wrt. the UV coordinates
-    dNSdUV = 0x20,
-
-    /// Compute the boundary-test used in reparameterized integrators
-    BoundaryTest = 0x40,
-
-    // =============================================================
-    //!              Differentiability compute flags
-    // =============================================================
-
-    /// Derivatives of the SurfaceInteraction fields follow shape's motion
-    FollowShape = 0x80,
-
-    /// Derivatives of the SurfaceInteraction fields ignore shape's motion
-    DetachShape = 0x100,
-
-    // =============================================================
-    //!          Differential path integral compute flags
-    // =============================================================
-
-    /// Jacobian of the shape's motion
-    Jacobian = 0x200,
-
-    // =============================================================
-    //!                 Compound compute flags
-    // =============================================================
-
-    /* \brief Default: compute all fields of the surface interaction data
-       structure except shading/geometric normal derivatives */
-    All = UV | dPdUV | ShadingFrame,
-
-    /// Compute all fields of the surface interaction ignoring shape's motion
-    AllNonDifferentiable = All | DetachShape,
-};
-
-MI_DECLARE_ENUM_OPERATORS(RayFlags)
-
-// -----------------------------------------------------------------------------
 
 /**
  * \brief Stores preliminary information related to a ray intersection
