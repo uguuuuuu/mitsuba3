@@ -20,7 +20,7 @@ public:
                        Float *aovs,
                        const Vector2f &pos,
                        ScalarFloat diff_scale_factor,
-                       Mask active) const {
+                       Mask active) const override {
         const Film *film = sensor->film();
         const bool has_alpha = has_flag(film->flags(), FilmFlags::Alpha);
         const bool box_filter = film->rfilter()->is_box_filter();
@@ -55,7 +55,7 @@ public:
         uint32_t spp = sampler->sample_count();
         ScalarFloat sample_scale =
             dr::prod(crop_size) / ScalarFloat(spp * dr::prod(film_size));
-        // To accumulate and splat into a single block
+        // In order to accumulate and splat into a single block
         block->set_normalize(true);
         bool coalesce = block->coalesce();
         block->set_coalesce(false);
@@ -92,19 +92,50 @@ public:
     }
 
     std::pair<Spectrum, Mask> sample(const Scene *scene,
-                const Sensor *sensor,
-                Sampler *sampler,
-                const RayDifferential3f &ray,
-                ImageBlock *block,
-                ScalarFloat sample_scale) const {
-        auto [camera_verts, n_camera_verts] = generate_camera_subpath();
+                                     const Sensor *sensor,
+                                     Sampler *sampler,
+                                     const RayDifferential3f &ray,
+                                     ImageBlock *block,
+                                     ScalarFloat sample_scale) const {
+        UInt32 n_camera_verts = generate_camera_subpath();
 
-        auto [light_verts, n_light_verts] = generate_light_subpath();
+        UInt32 n_light_verts = generate_light_subpath();
 
         Spectrum result(0.f);
-        UInt32 t = 1;
+
+        // t = 1, s > 0
+        // Sample sensor and connect
+        UInt32 s = 1u;
+        while (loop(active)) {
+            Vertex vert = dr::gather<Vertex>();
+            auto [ds, importance] = sensor->sample_direction();
+            Spectrum L = importance * vert.throughput / ds.pdf;
+            L *= mis_weight();
+            block->put();
+            s += 1;
+        }
+        // s = 0
+        // Treat camera subpath as a complete path
+        // s = 1, t > 1
+        // Sample emitter and connect
+        UInt32 t = 1u;
+        while (loop(active)) {
+            Vertex vert = dr::gather<Vertex>();
+            Spectrum L = vert.throughput * vert.emitter();
+
+            scene->sample_emitter_direction();
+            L += dr::select(t > 1, L_, 0.f);
+
+            result += L;
+        }
+
+
+
+        // t > 1, s > 1
+        // The general case
+        UInt32 t = 2u;
         while (loop(active_t)) {
-            UInt32 s = 0;
+            UInt32 s = 2u;
             while (loop(active_s)) {
                 // Check for invalid combination
 
@@ -114,9 +145,32 @@ public:
         }
     }
 
+    UInt32 random_walk(BSDFContext bsdf_ctx,
+                       const Scene *scene,
+                       const Ray3f &ray,
+                       Vertex vertices,
+                       UInt32 offset,
+                       uint32_t max_depth,
+                       Float pdf,
+                       Spectrum throughput = 1.f,
+                       Mask active = true) const {
+        if (unlikely(max_depth == 0))
+            return 0u;
+
+        UInt32 n_verts = 0u;
+
+        dr::Loop<Bool> loop("Random Walk", n_verts, throughput, active);
+        loop.set_max_iterations(max_depth);
+
+        while (loop(active)) {
+            SurfaceInteraction si =
+                scene->ray_intersect(ray);
+
+
+        }
+    }
 
     UInt32 generate_camera_subpath() const {
-        // Generate camera ray
 
         // Perform random walk to construct subpath
     }

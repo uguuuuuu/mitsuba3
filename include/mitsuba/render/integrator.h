@@ -233,7 +233,7 @@ protected:
                               uint32_t block_id,
                               uint32_t block_size) const;
 
-    void render_sample(const Scene *scene,
+    virtual void render_sample(const Scene *scene,
                        const Sensor *sensor,
                        Sampler *sampler,
                        ImageBlock *block,
