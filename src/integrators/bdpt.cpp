@@ -63,6 +63,7 @@ public:
         auto [spec, valid] = sample(
             scene, sensor, sampler, ray, block, sample_scale
             );
+        spec *= sample_scale;
         block->set_coalesce(coalesce);
 
         UnpolarizedSpectrum spec_u = unpolarized_spectrum(ray_weight * spec);
@@ -97,13 +98,17 @@ public:
                                      const RayDifferential3f &ray,
                                      ImageBlock *block,
                                      ScalarFloat sample_scale) const {
+
         UInt32 n_camera_verts = generate_camera_subpath();
 
         UInt32 n_light_verts = generate_light_subpath();
 
         Spectrum result(0.f);
 
-        // t = 1, s > 0
+        // t = 1, s = 1
+        // Sample emitter and sensor and connect
+
+        // t = 1, s > 1
         // Sample sensor and connect
         UInt32 s = 1u;
         while (loop(active)) {
@@ -151,21 +156,28 @@ public:
                        Vertex vertices,
                        UInt32 offset,
                        uint32_t max_depth,
-                       Float pdf,
+                       Float pdf_fwd,
                        Spectrum throughput = 1.f,
                        Mask active = true) const {
         if (unlikely(max_depth == 0))
-            return 0u;
+            return 0;
 
-        UInt32 n_verts = 0u;
+        UInt32 n_verts = 0;
+        Vertex prev_vert = dr::gather<Vertex>();
 
-        dr::Loop<Bool> loop("Random Walk", n_verts, throughput, active);
+        dr::Loop<Bool> loop("Random Walk", n_verts, prev_vert, active);
         loop.set_max_iterations(max_depth);
 
         while (loop(active)) {
-            SurfaceInteraction si =
+            SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
+            Vertex curr_vert(si);
+            si.pdf_fwd = pdf_fwd;
+            BSDFPtr bsdf = si.bsdf(ray);
 
+            bsdf_ctx->reverse();
+            bsdf->pdf(bsdf_ctx_rev, si, si.wi);
+            bsdf_ctx->reverse();
 
         }
     }
