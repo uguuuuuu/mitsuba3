@@ -43,6 +43,8 @@ template <typename Float, typename Spectrum> struct MediumInteraction;
 template <typename Float, typename Spectrum> struct SurfaceInteraction;
 template <typename Float, typename Shape>    struct PreliminaryIntersection;
 
+template <typename Float, typename Spectrum> struct Vertex;
+
 
 template <typename Float_, typename Spectrum_> struct RenderAliases {
     using Float                     = Float_;
@@ -69,6 +71,8 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using MediumInteraction3f       = MediumInteraction<Float, Spectrum>;
     using SurfaceInteraction3f      = SurfaceInteraction<Float, Spectrum>;
     using PreliminaryIntersection3f = PreliminaryIntersection<Float, mitsuba::Shape<FloatU, SpectrumU>>;
+
+    using Vertex3f = Vertex<Float, Spectrum>;
 
     using Scene                  = mitsuba::Scene<FloatU, SpectrumU>;
     using Sampler                = mitsuba::Sampler<FloatU, SpectrumU>;
@@ -155,6 +159,7 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using MediumInteraction3f       = typename RenderAliases::MediumInteraction3f;                 \
     using PreliminaryIntersection3f = typename RenderAliases::PreliminaryIntersection3f;           \
     using BSDFSample3f              = typename RenderAliases::BSDFSample3f;                        \
+    using Vertex3f                  = typename RenderAliases::Vertex3f;                            \
     DRJIT_MAP(MI_IMPORT_TYPES_MACRO, __VA_ARGS__)
 
 #define MI_IMPORT_OBJECT_TYPES()                                                                   \

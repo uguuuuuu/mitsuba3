@@ -1,4 +1,9 @@
+#include <mitsuba/core/ray.h>
+#include <mitsuba/core/properties.h>
+#include <mitsuba/render/bsdf.h>
+#include <mitsuba/render/emitter.h>
 #include <mitsuba/render/integrator.h>
+#include <mitsuba/render/vertex.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -112,7 +117,7 @@ public:
         // Sample sensor and connect
         UInt32 s = 1u;
         while (loop(active)) {
-            Vertex vert = dr::gather<Vertex>();
+            Vertex vert = dr::gather<Vertex3f>();
             auto [ds, importance] = sensor->sample_direction();
             Spectrum L = importance * vert.throughput / ds.pdf;
             L *= mis_weight();
@@ -152,33 +157,52 @@ public:
 
     UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
+                       Sampler *sampler,
                        const Ray3f &ray,
-                       Vertex vertices,
+                       Vertex3f& vertices,
                        UInt32 offset,
                        uint32_t max_depth,
                        Float pdf_fwd,
-                       Spectrum throughput = 1.f,
                        Mask active = true) const {
         if (unlikely(max_depth == 0))
             return 0;
 
         UInt32 n_verts = 0;
-        Vertex prev_vert = dr::gather<Vertex>();
-
-        dr::Loop<Bool> loop("Random Walk", n_verts, prev_vert, active);
+        Vertex3f prev_vert = dr::gather<Vertex3f>(vertices, offset, active);
+        dr::Loop<Bool> loop("Random Walk", n_verts, prev_vert, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
         while (loop(active)) {
+            // Find next vertex
             SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
-            Vertex curr_vert(si);
-            si.pdf_fwd = pdf_fwd;
+            Vertex3f curr_vert(si, scene);
+            curr_vert.pdf_fwd = convert_density(pdf_fwd);
             BSDFPtr bsdf = si.bsdf(ray);
+            auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
+            curr_vert.throughput = prev_vert.throughput * bsdf_weight;
+            curr_vert.delta = has_flag(bsdf_sample.sampled_type, BSDFFlags::Delta);
 
+            // Compute previous vertex's pdf_rev
             bsdf_ctx->reverse();
-            bsdf->pdf(bsdf_ctx_rev, si, si.wi);
+            Vector3f wo = si.wi;
+            si.wi = bsdf_sample.wo;
+            Float pdf_rev = convert_density(bsdf->pdf(bsdf_ctx_rev, si, wo));
             bsdf_ctx->reverse();
 
+            // Scatter previous vertex into `vertices`
+            UInt32 idx = offset + n_verts;
+            dr::scatter(vertices, prev_vert, idx, active);
+
+            // Update loop variables
+            n_verts++;
+            prev_vert = curr_vert;
+            pdf_fwd = bsdf_sample.pdf;
+
+
+            // Check for termination
+            active &= si.is_valid();
+            active &= n_verts < max_depth;
         }
     }
 
