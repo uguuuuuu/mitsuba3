@@ -44,15 +44,15 @@ struct Vertex {
 
     Float pdf_rev = 0.f;
 
-    Mask delta;
+//    Mask delta;
 
     Float J = 1.f;
 
     /// Direction from this vertex to next vertex
     Vector3f d;
 
-    /// Distance from this vertex to next vertex
-    Float dist;
+    /// Distance from previous vertex to this vertex
+    Float dist = 0.f;
 
     EmitterPtr emitter = nullptr;
 
@@ -68,20 +68,49 @@ struct Vertex {
     // =============================================================
 
     /// Constructor
-    Vertex(const SurfaceInteraction3f& si,
-           const Scene *scene)
+    Vertex(const SurfaceInteraction3f &si,
+           Float pdf)
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
           time(si.time), wavelengths(si.wavelengths), J(si.J),
-          dist(si.t), emitter(si.emitter(scene)), bsdf(si.bsdf()) {}
+          dist(si.t), bsdf(si.bsdf()) {
+        pdf_fwd = dr::select(si.is_valid(),
+                        pdf * dr::rcp(dr::sqr(dist)) * dr::abs_dot(n, si.wi),
+                        pdf);
+    }
+
+//    Vertex(const Sensor *sensor,
+//           const RayDifferential3f &ray)
+//        : p(ray.o), time(ray.time), wavelengths(ray.wavelengths) {
+//        SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+//        si.p = ray.o + ray.d;
+//        sensor->pdf_position()
+//    }
 
     void zero_(size_t size = 1) {
         dist = dr::full<Float>(dr::Infinity<Float>, size);
         J = dr::full<Float>(1.f, size);
     }
 
+//    void set_emitter(const Scene *scene,
+//                     const SurfaceInteraction3f &si,
+//                     Mask active) {
+//        emitter = si.emitter(scene, active);
+//    }
+//
+//    void sample(const BSDFContext &ctx,
+//                Vertex &prev,
+//                Float sample1,
+//                Point2f sample2) {
+//        SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+//        si.
+//        bsdf->eval_pdf_sample(ctx, )
+//    }
+
+    //! @}
+    // =============================================================
 
     DRJIT_STRUCT(Vertex, p, n, sh_frame, uv, time, wavelengths,
-                 pdf_fwd, pdf_rev, delta, J, d, dist, emitter,
+                 pdf_fwd, pdf_rev, J, d, dist, emitter,
                  bsdf, throughput)
 };
 

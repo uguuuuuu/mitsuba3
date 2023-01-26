@@ -50,6 +50,8 @@ public:
 
         auto [ray, ray_weight] = sensor->sample_ray_differential(
             time, wavelength_sample, adjusted_pos, aperture_sample);
+        auto [_, wav_weight] = sensor->sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
+            wavelength_sample);
 
         if (ray.has_differentials)
             ray.scale_differential(diff_scale_factor);
@@ -66,12 +68,12 @@ public:
         block->set_coalesce(false);
 
         auto [spec, valid] = sample(
-            scene, sensor, sampler, ray, block, sample_scale
+            scene, sensor, sampler, ray, wav_weight, block, sample_scale
             );
         spec *= sample_scale;
         block->set_coalesce(coalesce);
 
-        UnpolarizedSpectrum spec_u = unpolarized_spectrum(ray_weight * spec);
+        UnpolarizedSpectrum spec_u = unpolarized_spectrum(spec * ray_weight);
 
         Color3f rgb;
         if constexpr (is_spectral_v<Spectrum>)
@@ -101,10 +103,11 @@ public:
                                      const Sensor *sensor,
                                      Sampler *sampler,
                                      const RayDifferential3f &ray,
+                                     Spectrum wav_weight,
                                      ImageBlock *block,
                                      ScalarFloat sample_scale) const {
 
-        UInt32 n_camera_verts = generate_camera_subpath();
+        UInt32 n_camera_verts = generate_camera_subpath(scene, sensor, sampler, ray);
 
         UInt32 n_light_verts = generate_light_subpath();
 
@@ -155,11 +158,12 @@ public:
         }
     }
 
+    // TODO: Delta distributions ignored for now
     UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
-                       const Ray3f &ray,
-                       Vertex3f& vertices,
+                       const Ray3f &ray_,
+                       Vertex3f &vertices,
                        UInt32 offset,
                        uint32_t max_depth,
                        Float pdf_fwd,
@@ -167,34 +171,42 @@ public:
         if (unlikely(max_depth == 0))
             return 0;
 
+        Ray3f ray = Ray3f(ray_);
         UInt32 n_verts = 0;
         Vertex3f prev_vert = dr::gather<Vertex3f>(vertices, offset, active);
-        dr::Loop<Bool> loop("Random Walk", n_verts, prev_vert, pdf_fwd, active);
+        dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
         while (loop(active)) {
             // Find next vertex
             SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
-            Vertex3f curr_vert(si, scene);
-            curr_vert.pdf_fwd = convert_density(pdf_fwd);
+            Vertex3f curr_vert(si, pdf_fwd);
             BSDFPtr bsdf = si.bsdf(ray);
             auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
+            bsdf_weight = si.to_world_mueller(bsdf_weight, -bsdf_sample.wo, si.wi);
             curr_vert.throughput = prev_vert.throughput * bsdf_weight;
-            curr_vert.delta = has_flag(bsdf_sample.sampled_type, BSDFFlags::Delta);
+            curr_vert.d = bsdf_sample.wo;
+            curr_vert.emitter = si.emitter(scene);
 
             // Compute previous vertex's pdf_rev
-            bsdf_ctx->reverse();
+            bsdf_ctx.reverse();
             Vector3f wo = si.wi;
             si.wi = bsdf_sample.wo;
-            Float pdf_rev = convert_density(bsdf->pdf(bsdf_ctx_rev, si, wo));
-            bsdf_ctx->reverse();
+            Float pdf_bsdf = bsdf->pdf(bsdf_ctx, si, wo);
+            pdf_bsdf *= dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
+            Float pdf_env = dr::rcp(dr::sqr(scene->bbox().bounding_sphere().radius) * dr::Pi<Float>);
+            pdf_env *= dr::abs_dot(prev_vert.n, wo);
+            prev_vert.pdf_rev = dr::select(si.is_valid(), pdf_bsdf, pdf_env);
+            si.wi = wo;
+            bsdf_ctx.reverse();
 
             // Scatter previous vertex into `vertices`
             UInt32 idx = offset + n_verts;
             dr::scatter(vertices, prev_vert, idx, active);
 
             // Update loop variables
+            ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
             n_verts++;
             prev_vert = curr_vert;
             pdf_fwd = bsdf_sample.pdf;
@@ -204,11 +216,30 @@ public:
             active &= si.is_valid();
             active &= n_verts < max_depth;
         }
+
+        // Scatter last vertex
+        UInt32 idx = offset + n_verts;
+        // We allow environment maps to be the last vertex
+        // of camera subpaths but not of light subpaths
+        if (bsdf_ctx.mode == TransportMode::Importance) {
+            active = dr::neq(prev_vert.dist, dr::Infinity<Float>);
+        }
+        else {
+            active = true;
+        }
+        dr::scatter(vertices, prev_vert, idx, active);
+        n_verts -= dr::select(active, 0, 1);
+
+        return n_verts;
     }
 
-    UInt32 generate_camera_subpath() const {
-
+    // TODO: How to handle camera vertices?
+    UInt32 generate_camera_subpath(const Scene *scene,
+                                   const Sensor *sensor,
+                                   Sampler *sampler,
+                                   const RayDifferential3f &ray) const {
         // Perform random walk to construct subpath
+
     }
 
     UInt32 generate_light_subpath() const;
