@@ -52,7 +52,7 @@ struct Vertex {
     Vector3f d;
 
     /// Distance from previous vertex to this vertex
-    Float dist = 0.f;
+    Float dist;
 
     EmitterPtr emitter = nullptr;
 
@@ -78,13 +78,19 @@ struct Vertex {
                         pdf);
     }
 
-//    Vertex(const Sensor *sensor,
-//           const RayDifferential3f &ray)
-//        : p(ray.o), time(ray.time), wavelengths(ray.wavelengths) {
-//        SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
-//        si.p = ray.o + ray.d;
-//        sensor->pdf_position()
-//    }
+    Vertex(const Ray3f &ray,
+           Float pdf)
+        : p(ray.o), time(ray.time), wavelengths(ray.wavelengths), J(1.f),
+          throughput(1.f), pdf_fwd(pdf) {}
+
+    Vertex(const Ray3f &ray,
+           const PositionSample3f &ps,
+           EmitterPtr emitter,
+           Float pdf,
+           Spectrum throughput)
+        : p(ray.o), n(ps.n), sh_frame(ps.n), uv(ps.uv),
+          time(ray.time), wavelengths(ray.wavelengths), J(ps.J),
+          pdf_fwd(pdf), throughput(throughput) {}
 
     void zero_(size_t size = 1) {
         dist = dr::full<Float>(dr::Infinity<Float>, size);

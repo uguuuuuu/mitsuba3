@@ -164,6 +164,7 @@ public:
                        Sampler *sampler,
                        const Ray3f &ray_,
                        Vertex3f &vertices,
+                       Vertex3f prev_vert,
                        UInt32 offset,
                        uint32_t max_depth,
                        Float pdf_fwd,
@@ -173,7 +174,6 @@ public:
 
         Ray3f ray = Ray3f(ray_);
         UInt32 n_verts = 0;
-        Vertex3f prev_vert = dr::gather<Vertex3f>(vertices, offset, active);
         dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
@@ -191,13 +191,25 @@ public:
 
             // Compute previous vertex's pdf_rev
             bsdf_ctx.reverse();
+            // TODO: what if current vertex is the last vertex,
+            // and bsdf_sample.wo thus doesn't make sense?
+            // How do we compute pdf_rev then?
             Vector3f wo = si.wi;
             si.wi = bsdf_sample.wo;
             Float pdf_bsdf = bsdf->pdf(bsdf_ctx, si, wo);
-            pdf_bsdf *= dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
-            Float pdf_env = dr::rcp(dr::sqr(scene->bbox().bounding_sphere().radius) * dr::Pi<Float>);
-            pdf_env *= dr::abs_dot(prev_vert.n, wo);
-            prev_vert.pdf_rev = dr::select(si.is_valid(), pdf_bsdf, pdf_env);
+            Float pdf_pos = pdf_bsdf * dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
+            if (bsdf_ctx.mode == TransportMode::Radiance) {
+                Float pdf_env =
+                    dr::rcp(dr::sqr(scene->bbox().bounding_sphere().radius) *
+                            dr::Pi<Float>);
+                pdf_env *= dr::abs_dot(prev_vert.n, wo);
+                prev_vert.pdf_rev =
+                    dr::select(si.is_valid(), pdf_pos, pdf_env);
+            }
+            else {
+                Mask is_inf = has_flag(prev_vert.emitter->flags(), EmitterFlags::Infinite);
+                prev_vert.pdf_rev = dr::select(is_inf, pdf_bsdf, pdf_pos);
+            }
             si.wi = wo;
             bsdf_ctx.reverse();
 
@@ -233,16 +245,58 @@ public:
         return n_verts;
     }
 
-    // TODO: How to handle camera vertices?
     UInt32 generate_camera_subpath(const Scene *scene,
                                    const Sensor *sensor,
                                    Sampler *sampler,
-                                   const RayDifferential3f &ray) const {
-        // Perform random walk to construct subpath
+                                   const RayDifferential3f &ray,
+                                   Vertex3f &vertices) const {
+        auto [pdf_pos, pdf_dir] = sensor->pdf_ray(ray);
+        Vertex3f vert(ray, pdf_pos);
+        UInt32 offset = dr::arange<UInt32>(dr::width(ray)) * (m_max_depth + 1);
 
+        return random_walk(BSDFContext(), scene, sampler,
+                           ray, vertices, vert,
+                           offset, m_max_depth, pdf_dir) + 1;
     }
 
-    UInt32 generate_light_subpath() const;
+    // TODO: Delta lights ignored for now
+    // TODO: Implement sample_*() for envmap
+    UInt32 generate_light_subpath(const Scene *scene,
+                                  Sampler *sampler,
+                                  Float time,
+                                  const Wavelength &wavelengths,
+                                  Vertex3f &vertices) const {
+        auto [emitter_idx, emitter_idx_weight, _] =
+            scene->sample_emitter(sampler->next_1d());
+        EmitterPtr emitter =
+            dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
+
+        auto [ps, pos_weight] =
+            emitter->sample_position(time, sampler->next_2d());
+        auto [ray, ray_weight] =
+            emitter->sample_ray_dir(time, wavelengths, sampler->next_2d(), ps);
+        ray_weight *= pos_weight * emitter_idx_weight;
+
+        Float pdf_pos = scene->pdf_emitter(emitter_idx) / pos_weight;
+        Float pdf_dir = emitter->pdf_ray_dir(ray, ps);
+
+        Vertex3f vert(ray, ps, emitter, pdf_pos, ray_weight);
+        UInt32 idx = dr::arange<UInt32>(dr::width(time)) * m_max_depth;
+
+        UInt32 n_verts = random_walk(BSDFContext(TransportMode::Importance),
+                                     scene, sampler, ray, vertices, vert, idx, m_max_depth - 1, pdf_dir) + 1;
+
+        // Correct PDF for infinite lights
+        Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
+        vert.pdf_fwd = dr::select(is_inf, pdf_dir, vert.pdf_fwd);
+        dr::scatter(vertices, vert, idx, is_inf);
+        idx++;
+        vert = dr::gather<Vertex3f>(vertices, idx, is_inf);
+        vert.pdf_fwd = pdf_pos * dr::abs_dot(vert.n, ray.d);
+        dr::scatter(vertices, vert, idx, is_inf);
+
+        return n_verts;
+    }
 
     Spectrum connect_bdpt() const {
         // Handle the case where the camera vertex is on a light and s != 0

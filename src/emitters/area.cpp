@@ -113,6 +113,42 @@ public:
                  depolarizer<Spectrum>(weight) };
     }
 
+    std::pair<Ray3f, Spectrum> sample_ray(Float time, Float wavelength_sample,
+                                          const Point2f &sample2, const PositionSample3f &ps,
+                                          Mask active) const override {
+        Vector3f local = warp::square_to_cosine_hemisphere(sample2);
+
+        SurfaceInteraction3f si(ps, dr::zeros<Wavelength>());
+        auto [wavelength, wav_weight] =
+            sample_wavelengths(si, wavelength_sample, active);
+        si.time = time;
+        si.wavelengths = wavelength;
+
+        Spectrum weight = wav_weight * dr::Pi<ScalarFloat>;
+
+        return { si.spawn_ray(si.to_world(local)),
+                 depolarizer<Spectrum>(weight) };
+    }
+
+    std::pair<Ray3f, Spectrum> sample_ray_dir(Float time, const Wavelength &wavelengths,
+                                              const Point2f &sample, const PositionSample3f &ps,
+                                              Mask active = true) const override {
+        Vector3f local = warp::square_to_cosine_hemisphere(sample);
+
+        SurfaceInteraction3f si(ps, wavelengths);
+        si.time = time;
+
+        Spectrum weight = dr::Pi<ScalarFloat>;
+
+        return { si.spawn_ray(si.to_world(local)),
+                 depolarizer<Spectrum>(weight) };
+    }
+
+    Float pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active) const override {
+        Vector3f d = Frame3f(ps.n).to_local(ray.d);
+        return warp::square_to_cosine_hemisphere_pdf(d);
+    }
+
     std::pair<DirectionSample3f, Spectrum>
     sample_direction(const Interaction3f &it, const Point2f &sample, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
@@ -220,6 +256,21 @@ public:
 
         Float weight = dr::select(active && ps.pdf > 0.f, dr::rcp(ps.pdf), Float(0.f));
         return { ps, weight };
+    }
+
+    Float pdf_position(const PositionSample3f &ps, Mask active = true) const override {
+        if (!m_radiance->is_spatially_varying()) {
+            return m_shape->pdf_position(ps, active);
+        }
+        else {
+            Float pdf = m_radiance->pdf_position(ps.uv);
+            active &= dr::neq(pdf, 0.f);
+            auto si = m_shape->eval_parameterization(ps.uv, +RayFlags::All, active);
+            active &= si.is_valid();
+            pdf /= dr::norm(dr::cross(si.dp_du, si.dp_dv));
+
+            return pdf;
+        }
     }
 
     std::pair<Wavelength, Spectrum>

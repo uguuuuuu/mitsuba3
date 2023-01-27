@@ -313,6 +313,7 @@ NAMESPACE_END(mitsuba)
 
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Sensor)
     DRJIT_VCALL_METHOD(sample_ray)
+    DRJIT_VCALL_METHOD(pdf_ray)
     DRJIT_VCALL_METHOD(sample_direction)
     DRJIT_VCALL_METHOD(pdf_direction)
     DRJIT_VCALL_METHOD(eval_direction)

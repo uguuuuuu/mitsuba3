@@ -235,6 +235,11 @@ public:
         return { ray, wav_weight };
     }
 
+    std::pair<Float, Float> pdf_ray(const Ray3f &ray, Mask active) const override {
+        Vector3f local_d = m_to_world.value().inverse() * ray.d;
+        return {1.f, importance(local_d)};
+    }
+
     std::pair<RayDifferential3f, Spectrum>
     sample_ray_differential(Float time, Float wavelength_sample, const Point2f &position_sample,
                             const Point2f & /*aperture_sample*/, Mask active) const override {
@@ -277,6 +282,8 @@ public:
 
         return { ray, wav_weight };
     }
+
+
 
     std::pair<DirectionSample3f, Spectrum>
     sample_direction(const Interaction3f &it, const Point2f & /*sample*/,

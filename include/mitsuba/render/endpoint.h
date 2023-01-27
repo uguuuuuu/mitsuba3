@@ -156,6 +156,84 @@ public:
     sample_ray(Float time, Float sample1, const Point2f &sample2,
                const Point2f &sample3, Mask active = true) const;
 
+    /**
+     * \brief Sample ray given position on the endpoint
+     * \param time
+     *    The scene time associated with the ray to be sampled
+     *
+     * \param sample1
+     *    A uniformly distributed 1D value that is used to sample the spectral
+     *    dimension of the emission profile.
+     *
+     * \param sample2
+     *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. Used
+     *    to sample ray direction
+     *
+     * \param ps
+     *    Position on the endpoint
+     *
+     * \return
+     *    The sampled ray and (potentially spectrally varying) importance
+     *    weights. The latter account for the difference between the profile
+     *    and the actual used sampling density function.
+     */
+    virtual std::pair<Ray3f, Spectrum>
+    sample_ray(Float time, Float sample1, const Point2f &sample2,
+               const PositionSample3f &ps, Mask active = true) const;
+
+
+    /**
+     * \brief Sample ray given position and wavelengths
+     * \param time
+     *    The scene time associated with the ray to be sampled
+     *
+     * \param wavelengths
+     *    wavelengths of ray
+     *
+     * \param sample
+     *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. Used
+     *    to sample ray direction
+     *
+     * \param ps
+     *    Position on the endpoint
+     *
+     * \return
+     *    The sampled ray and (potentially spectrally varying) importance
+     *    weights. The latter account for the difference between the profile
+     *    and the actual used sampling density function.
+     */
+    virtual std::pair<Ray3f, Spectrum>
+        sample_ray_dir(Float time, const Wavelength &wavelengths,
+                   const Point2f &sample, const PositionSample3f &ps,
+                   Mask active = true) const;
+    /**
+     * \brief Evaluate positional PDF of ray origin and directional
+     * PDF of ray direction
+     *
+     * \param ray
+     *    Ray originating from this endpoint
+     *
+     * \return
+     *    Positional and directional PDFs of the ray
+     */
+    virtual std::pair<Float, Float>
+    pdf_ray(const Ray3f &ray, Mask active = true) const;
+
+    /**
+     * \brief Evaluate PDF of ray direction
+     *
+     * \param ray
+     *    Sampled ray
+     *
+     * \param ps
+     *    Sampled position
+     *
+     * \return
+     *    PDF of ray direction
+     */
+    virtual Float
+    pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active = true) const;
+
     //! @}
     // =============================================================
 
