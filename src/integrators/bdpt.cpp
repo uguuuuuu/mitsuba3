@@ -106,21 +106,57 @@ public:
                                      Spectrum wav_weight,
                                      ImageBlock *block,
                                      ScalarFloat sample_scale) const {
-
+        uint32_t width = dr::width(ray);
+        Vertex3f verts_camera = dr::empty<Vertex3f>(width * (m_max_depth + 1));
         UInt32 n_camera_verts = generate_camera_subpath(scene, sensor, sampler, ray);
 
+        Vertex3f verts_light = dr::empty<Vertex3f>(width * m_max_depth);
         UInt32 n_light_verts = generate_light_subpath();
 
         Spectrum result(0.f);
 
         // t = 1, s = 1
         // Sample emitter and sensor and connect
+        // Sample emitter
+        auto [emitter_idx, emitter_idx_weight, _] =
+            scene->sample_emitter(sampler->next_1d());
+        EmitterPtr emitter = dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
+        Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
+        Spectrum throughput = emitter_idx_weight;
+        Float pdf_emitter = dr::rcp(emitter_idx_weight);
+        SurfaceInteraction si = dr::zeros<SurfaceInteraction3f>();
+        // Sample direction or position for infinite or area light respectively
+        if (dr::any_or<true>(is_inf)) {
+            Interaction3f ref_it(0.f, ray.time, ray.wavelengths,
+                                sensor->world_transform().translation());
+            auto [ds, dir_weight] = emitter->sample_direction(
+                ref_it, sampler->next_2d(is_inf), is_inf);
+            throughput[is_inf] *= dir_weight * dr::sqr(ds.dist);
+            pdf_emitter[is_inf] *= ds.pdf;
+            si[is_inf] = SurfaceInteraction3f(ds, ray.wavelengths);
+        }
+        if (dr::any_or<true>(!is_inf)) {
+            auto [ps, pos_weight] = emitter->sample_position(vert.time, sampler->next_2d(!is_inf), !is_inf);
+            SurfaceInteraction3f si(ps, dr::zeros<Wavelength>());
+            throughput[!is_inf] = pos_weight * emitter->eval(si, !is_inf);
+            pdf_emitter[!is_inf] = ps.pdf;
+            si[!is_inf] = SurfaceInteraction3f(ps, ray.wavelengths);
+        }
+        Point2f aperture_sample;
+        if (sensor->needs_aperture_sample()) {
+            aperture_sample = sampler->next_2d();
+        }
+        auto [sensor_ds, sensor_weight] = sensor->sample_direction(si, aperture_sample);
+        Float pdf_sensor = sensor_ds.pdf;
+        throughput *= sensor_weight;
+        Float pdf_fwd = pdf_sensor * pdf_emitter;
+        auto [pdf_pos, pdf_dir] = sensor->pdf_ray(Ray3f(sensor_ds.p, -sensor_ds.d))
 
         // t = 1, s > 1
         // Sample sensor and connect
         UInt32 s = 1u;
         while (loop(active)) {
-            Vertex vert = dr::gather<Vertex3f>();
+            Vertex3f vert = dr::gather<Vertex3f>();
             auto [ds, importance] = sensor->sample_direction();
             Spectrum L = importance * vert.throughput / ds.pdf;
             L *= mis_weight();
@@ -158,7 +194,7 @@ public:
         }
     }
 
-    // TODO: Delta distributions ignored for now
+    // TODO: Delta vertices ignored for now
     UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
@@ -191,9 +227,6 @@ public:
 
             // Compute previous vertex's pdf_rev
             bsdf_ctx.reverse();
-            // TODO: what if current vertex is the last vertex,
-            // and bsdf_sample.wo thus doesn't make sense?
-            // How do we compute pdf_rev then?
             Vector3f wo = si.wi;
             si.wi = bsdf_sample.wo;
             Float pdf_bsdf = bsdf->pdf(bsdf_ctx, si, wo);
@@ -276,8 +309,11 @@ public:
         auto [ray, ray_weight] =
             emitter->sample_ray_dir(time, wavelengths, sampler->next_2d(), ps);
         ray_weight *= pos_weight * emitter_idx_weight;
+        SurfaceInteraction3f si(ps, wavelengths);
+        si.wi = ray.d;
+        ray_weight *= emitter->eval(si);
 
-        Float pdf_pos = scene->pdf_emitter(emitter_idx) / pos_weight;
+        Float pdf_pos = scene->pdf_emitter(emitter_idx) * ps.pdf;
         Float pdf_dir = emitter->pdf_ray_dir(ray, ps);
 
         Vertex3f vert(ray, ps, emitter, pdf_pos, ray_weight);
@@ -317,7 +353,29 @@ public:
         // Multiply radiance by MIS weight
     }
 
-    Float mis_weight() const;
+    Float mis_weight(const Vertex3f &verts_camera,
+                     const Vertex3f &verts_light,
+                     UInt32 t, UInt32 s) const {
+        Float sum_ri = 0;
+
+        // TODO: Update vertex properties for current strategy
+
+        Float ri = 1;
+        while (loop(active_t)) {
+            Vertex3f vert = dr::gather<>();
+            ri *= vert.pdf_rev / vert.pdf_fwd;
+            sum_ri += ri;
+        }
+
+        ri = 1;
+        while (loop(active_s)) {
+            Vertex3f vert = dr::gather<>();
+            ri *= vert.pdf_rev / vert.pdf_fwd;
+            sum_ri += ri;
+        }
+
+        return dr::rcp(1 + sum_ri);
+    }
 
     MI_DECLARE_CLASS()
 };

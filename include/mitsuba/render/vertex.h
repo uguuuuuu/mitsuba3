@@ -80,8 +80,8 @@ struct Vertex {
 
     Vertex(const Ray3f &ray,
            Float pdf)
-        : p(ray.o), time(ray.time), wavelengths(ray.wavelengths), J(1.f),
-          throughput(1.f), pdf_fwd(pdf) {}
+        : p(ray.o), time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
+          J(1.f), throughput(1.f) {}
 
     Vertex(const Ray3f &ray,
            const PositionSample3f &ps,
@@ -89,8 +89,8 @@ struct Vertex {
            Float pdf,
            Spectrum throughput)
         : p(ray.o), n(ps.n), sh_frame(ps.n), uv(ps.uv),
-          time(ray.time), wavelengths(ray.wavelengths), J(ps.J),
-          pdf_fwd(pdf), throughput(throughput) {}
+          time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
+          J(ps.J), throughput(throughput) {}
 
     void zero_(size_t size = 1) {
         dist = dr::full<Float>(dr::Infinity<Float>, size);
