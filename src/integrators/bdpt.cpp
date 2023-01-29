@@ -107,14 +107,26 @@ public:
                                      ImageBlock *block,
                                      ScalarFloat sample_scale) const {
         uint32_t width = dr::width(ray);
+
         Vertex3f verts_camera = dr::empty<Vertex3f>(width * (m_max_depth + 1));
-        UInt32 n_camera_verts = generate_camera_subpath(scene, sensor, sampler, ray);
+        UInt32 n_camera_verts = generate_camera_subpath(scene, sensor, sampler, ray, verts_camera);
 
         Vertex3f verts_light = dr::empty<Vertex3f>(width * m_max_depth);
-        UInt32 n_light_verts = generate_light_subpath();
+        UInt32 n_light_verts = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths, verts_light);
 
         Spectrum result(0.f);
 
+#ifndef USE_MIS
+        Mask active = true;
+        UInt32 depth = 1;
+        dr::Loop<Bool> loop("Connect Subpaths",
+                            depth, active);
+        while (loop(active)) {
+
+        }
+#endif
+
+#ifdef USE_MIS
         // t = 1, s = 1
         // Sample emitter and sensor and connect
         // Sample emitter
@@ -131,15 +143,16 @@ public:
                                 sensor->world_transform().translation());
             auto [ds, dir_weight] = emitter->sample_direction(
                 ref_it, sampler->next_2d(is_inf), is_inf);
+            // Convert to area measure
             throughput[is_inf] *= dir_weight * dr::sqr(ds.dist);
             pdf_emitter[is_inf] *= ds.pdf;
             si[is_inf] = SurfaceInteraction3f(ds, ray.wavelengths);
         }
         if (dr::any_or<true>(!is_inf)) {
-            auto [ps, pos_weight] = emitter->sample_position(vert.time, sampler->next_2d(!is_inf), !is_inf);
-            SurfaceInteraction3f si(ps, dr::zeros<Wavelength>());
-            throughput[!is_inf] = pos_weight * emitter->eval(si, !is_inf);
-            pdf_emitter[!is_inf] = ps.pdf;
+            auto [ps, pos_weight] = emitter->sample_position(ray.time, sampler->next_2d(!is_inf), !is_inf);
+            SurfaceInteraction3f si(ps, ray.wavelengths);
+            throughput[!is_inf] *= pos_weight * emitter->eval(si, !is_inf);
+            pdf_emitter[!is_inf] *= ps.pdf;
             si[!is_inf] = SurfaceInteraction3f(ps, ray.wavelengths);
         }
         Point2f aperture_sample;
@@ -147,10 +160,16 @@ public:
             aperture_sample = sampler->next_2d();
         }
         auto [sensor_ds, sensor_weight] = sensor->sample_direction(si, aperture_sample);
+        // Convert to solid angle measure
+        pdf_emitter[!is_inf] *= dr::sqr(sensor_ds.dist) * dr::dot(sensor_ds.d, si.n);
         Float pdf_sensor = sensor_ds.pdf;
         throughput *= sensor_weight;
         Float pdf_fwd = pdf_sensor * pdf_emitter;
-        auto [pdf_pos, pdf_dir] = sensor->pdf_ray(Ray3f(sensor_ds.p, -sensor_ds.d))
+        // Compute MIS weight
+//        auto [pdf_pos, pdf_dir] = sensor->pdf_ray(Ray3f(sensor_ds.p, -sensor_ds.d));
+//        Float pdf_dir = sensor->pdf_ray_dir(Ray3f(sensor_ds.p, -sensor_ds.d), sensor_ds);
+//        Float pdf_rev = pdf_pos * pdf_dir;
+//        Float mis_weight_ = pdf_fwd / (pdf_fwd + pdf_rev);
 
         // t = 1, s > 1
         // Sample sensor and connect
@@ -192,8 +211,36 @@ public:
                 result += connect_bdpt();
             }
         }
+#endif
     }
 
+    /**
+     * \brief Perform random walk to constrcut subpath
+     *
+     * \param bsdf_ctx
+     *    Indicates whether subpath starts from sensor or emitter
+     *
+     * \param vertices
+     *    Where to store vertices
+     *
+     * \param prev_vert
+     *    Vertex to start from
+     *
+     * \param throughput
+     *    Throughput of next vertex
+     *
+     * \param offset
+     *    Index of `prev_vert` into `vertices`
+     *
+     * \param max_depth
+     *    Maximum number of remaining vertices along subpath
+     *
+     * \param pdf_fwd
+     *    Directional PDF of next vertex
+     *
+     * \return
+     *    Number of vertices along subpath
+     */
     // TODO: Delta vertices ignored for now
     UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
@@ -201,6 +248,7 @@ public:
                        const Ray3f &ray_,
                        Vertex3f &vertices,
                        Vertex3f prev_vert,
+                       Spectrum throughput,
                        UInt32 offset,
                        uint32_t max_depth,
                        Float pdf_fwd,
@@ -210,18 +258,18 @@ public:
 
         Ray3f ray = Ray3f(ray_);
         UInt32 n_verts = 0;
-        dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, pdf_fwd, active);
+        dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, throughput, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
         while (loop(active)) {
-            // Find next vertex
+            // Find and populate next vertex
             SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
             Vertex3f curr_vert(si, pdf_fwd);
+            curr_vert.throughput = throughput;
             BSDFPtr bsdf = si.bsdf(ray);
             auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
             bsdf_weight = si.to_world_mueller(bsdf_weight, -bsdf_sample.wo, si.wi);
-            curr_vert.throughput = prev_vert.throughput * bsdf_weight;
             curr_vert.d = bsdf_sample.wo;
             curr_vert.emitter = si.emitter(scene);
 
@@ -232,6 +280,9 @@ public:
             Float pdf_bsdf = bsdf->pdf(bsdf_ctx, si, wo);
             Float pdf_pos = pdf_bsdf * dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
             if (bsdf_ctx.mode == TransportMode::Radiance) {
+                // Handle the case where the next vertex is on the environment map.
+                // Note the reverse PDF is not correct for sensor vertices,
+                // but we don't need PDFs of sensor vertices anyway
                 Float pdf_env =
                     dr::rcp(dr::sqr(scene->bbox().bounding_sphere().radius) *
                             dr::Pi<Float>);
@@ -240,6 +291,7 @@ public:
                     dr::select(si.is_valid(), pdf_pos, pdf_env);
             }
             else {
+                // Use directional PDF for infinite lights
                 Mask is_inf = has_flag(prev_vert.emitter->flags(), EmitterFlags::Infinite);
                 prev_vert.pdf_rev = dr::select(is_inf, pdf_bsdf, pdf_pos);
             }
@@ -254,8 +306,8 @@ public:
             ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
             n_verts++;
             prev_vert = curr_vert;
+            throughput *= bsdf_weight;
             pdf_fwd = bsdf_sample.pdf;
-
 
             // Check for termination
             active &= si.is_valid();
@@ -274,6 +326,8 @@ public:
         }
         dr::scatter(vertices, prev_vert, idx, active);
         n_verts -= dr::select(active, 0, 1);
+
+        Assert(!dr::any(n_verts > max_depth));
 
         return n_verts;
     }
@@ -299,32 +353,32 @@ public:
                                   Float time,
                                   const Wavelength &wavelengths,
                                   Vertex3f &vertices) const {
+        // Sample an emitter
         auto [emitter_idx, emitter_idx_weight, _] =
             scene->sample_emitter(sampler->next_1d());
         EmitterPtr emitter =
             dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
 
+        // Sample position on emitter and ray from emitter
         auto [ps, pos_weight] =
             emitter->sample_position(time, sampler->next_2d());
         auto [ray, ray_weight] =
             emitter->sample_ray_dir(time, wavelengths, sampler->next_2d(), ps);
-        ray_weight *= pos_weight * emitter_idx_weight;
-        SurfaceInteraction3f si(ps, wavelengths);
-        si.wi = ray.d;
-        ray_weight *= emitter->eval(si);
 
-        Float pdf_pos = scene->pdf_emitter(emitter_idx) * ps.pdf;
+        Spectrum throughput = emitter_idx_weight * pos_weight;
+        Float pdf_emitter = scene->pdf_emitter(emitter_idx);
+        Float pdf_pos = ps.pdf;
         Float pdf_dir = emitter->pdf_ray_dir(ray, ps);
+        Vertex3f vert(ray, ps, emitter, pdf_pos * pdf_emitter, throughput);
 
-        Vertex3f vert(ray, ps, emitter, pdf_pos, ray_weight);
+        throughput *= ray_weight;
         UInt32 idx = dr::arange<UInt32>(dr::width(time)) * m_max_depth;
-
         UInt32 n_verts = random_walk(BSDFContext(TransportMode::Importance),
-                                     scene, sampler, ray, vertices, vert, idx, m_max_depth - 1, pdf_dir) + 1;
+                                     scene, sampler, ray, vertices, vert, throughput, idx, m_max_depth - 1, pdf_dir) + 1;
 
         // Correct PDF for infinite lights
         Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
-        vert.pdf_fwd = dr::select(is_inf, pdf_dir, vert.pdf_fwd);
+        vert.pdf_fwd = dr::select(is_inf, pdf_dir * pdf_emitter, vert.pdf_fwd);
         dr::scatter(vertices, vert, idx, is_inf);
         idx++;
         vert = dr::gather<Vertex3f>(vertices, idx, is_inf);
@@ -334,7 +388,9 @@ public:
         return n_verts;
     }
 
+#ifdef USE_MIS
     Spectrum connect_bdpt() const {
+        return 1.f;
         // Handle the case where the camera vertex is on a light and s != 0
         // by returning zero
 
@@ -352,10 +408,14 @@ public:
 
         // Multiply radiance by MIS weight
     }
+#endif
 
+#ifdef USE_MIS
     Float mis_weight(const Vertex3f &verts_camera,
                      const Vertex3f &verts_light,
                      UInt32 t, UInt32 s) const {
+        return 1.f;
+
         Float sum_ri = 0;
 
         // TODO: Update vertex properties for current strategy
@@ -375,7 +435,9 @@ public:
         }
 
         return dr::rcp(1 + sum_ri);
+
     }
+#endif
 
     MI_DECLARE_CLASS()
 };

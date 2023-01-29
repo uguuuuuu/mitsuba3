@@ -137,8 +137,10 @@ public:
 
         SurfaceInteraction3f si(ps, wavelengths);
         si.time = time;
+        si.wi = local;
 
-        Spectrum weight = dr::Pi<ScalarFloat>;
+        Spectrum weight = eval(si, active) *
+                          dr::rcp(warp::square_to_cosine_hemisphere_pdf(local));
 
         return { si.spawn_ray(si.to_world(local)),
                  depolarizer<Spectrum>(weight) };

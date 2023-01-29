@@ -52,7 +52,7 @@ struct Vertex {
     Vector3f d;
 
     /// Distance from previous vertex to this vertex
-    Float dist;
+    Float dist = dr::Infinity<Float>;
 
     EmitterPtr emitter = nullptr;
 
@@ -67,7 +67,11 @@ struct Vertex {
     //! @{ \name Methods
     // =============================================================
 
-    /// Constructor
+    /**
+     * \brief Create a vertex from a surface interaction
+     *
+     * Used to create intermediate vertices
+     */
     Vertex(const SurfaceInteraction3f &si,
            Float pdf)
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
@@ -78,11 +82,13 @@ struct Vertex {
                         pdf);
     }
 
+    /// Create a vertex from a sensor ray
     Vertex(const Ray3f &ray,
            Float pdf)
         : p(ray.o), time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
           J(1.f), throughput(1.f) {}
 
+    /// Create a vertex from an emitter ray
     Vertex(const Ray3f &ray,
            const PositionSample3f &ps,
            EmitterPtr emitter,
