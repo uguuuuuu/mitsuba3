@@ -116,6 +116,8 @@ public:
     std::pair<Ray3f, Spectrum> sample_ray(Float time, Float wavelength_sample,
                                           const Point2f &sample2, const PositionSample3f &ps,
                                           Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
+
         Vector3f local = warp::square_to_cosine_hemisphere(sample2);
 
         SurfaceInteraction3f si(ps, dr::zeros<Wavelength>());
@@ -133,6 +135,8 @@ public:
     std::pair<Ray3f, Spectrum> sample_ray_dir(Float time, const Wavelength &wavelengths,
                                               const Point2f &sample, const PositionSample3f &ps,
                                               Mask active = true) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
+
         Vector3f local = warp::square_to_cosine_hemisphere(sample);
 
         SurfaceInteraction3f si(ps, wavelengths);
@@ -147,8 +151,37 @@ public:
     }
 
     Float pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
+
         Vector3f d = Frame3f(ps.n).to_local(ray.d);
         return warp::square_to_cosine_hemisphere_pdf(d);
+    }
+
+    std::tuple<PositionSample3f, Float, Ray3f, Spectrum>
+    pdf_sample_ray(Float time,
+                   const Wavelength &wavelengths,
+                   const Point2f &sample2,
+                   const Point2f &sample3,
+                   Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
+
+        // 1. Sample spatial component
+        auto [ps, pos_weight] = sample_position(time, sample2, active);
+
+        // 2. Sample directional component
+        Vector3f local = warp::square_to_cosine_hemisphere(sample3);
+        Float pdf_dir = warp::square_to_cosine_hemisphere_pdf(local);
+
+        SurfaceInteraction3f si(ps, wavelengths);
+        si.time = time;
+        si.wi = local;
+        Spectrum weight = eval(si, active) * dr::rcp(pdf_dir);
+        weight *= pos_weight;
+
+        return { ps,
+                 pdf_dir,
+                 si.spawn_ray(si.to_world(local)),
+                 depolarizer<Spectrum>(weight) };
     }
 
     std::pair<DirectionSample3f, Spectrum>
@@ -261,6 +294,8 @@ public:
     }
 
     Float pdf_position(const PositionSample3f &ps, Mask active = true) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
+
         if (!m_radiance->is_spatially_varying()) {
             return m_shape->pdf_position(ps, active);
         }

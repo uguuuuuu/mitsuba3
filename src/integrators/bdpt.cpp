@@ -265,7 +265,7 @@ public:
             // Find and populate next vertex
             SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
-            Vertex3f curr_vert(si, pdf_fwd);
+            Vertex3f curr_vert(prev_vert, si, pdf_fwd);
             curr_vert.throughput = throughput;
             BSDFPtr bsdf = si.bsdf(ray);
             auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
@@ -342,12 +342,13 @@ public:
         UInt32 offset = dr::arange<UInt32>(dr::width(ray)) * (m_max_depth + 1);
 
         return random_walk(BSDFContext(), scene, sampler,
-                           ray, vertices, vert,
+                           ray, vertices, vert, 1.f,
                            offset, m_max_depth, pdf_dir) + 1;
     }
 
     // TODO: Delta lights ignored for now
     // TODO: Implement sample_*() for envmap
+    // TODO: Implement pdf_ray() for area lights
     UInt32 generate_light_subpath(const Scene *scene,
                                   Sampler *sampler,
                                   Float time,
@@ -358,33 +359,28 @@ public:
             scene->sample_emitter(sampler->next_1d());
         EmitterPtr emitter =
             dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
+        Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
 
         // Sample position on emitter and ray from emitter
-        auto [ps, pos_weight] =
-            emitter->sample_position(time, sampler->next_2d());
-        auto [ray, ray_weight] =
-            emitter->sample_ray_dir(time, wavelengths, sampler->next_2d(), ps);
-
-        Spectrum throughput = emitter_idx_weight * pos_weight;
-        Float pdf_emitter = scene->pdf_emitter(emitter_idx);
+        // Note ray_weight includes radiance
+        auto [ps, pdf_dir, ray, ray_weight] =
+            emitter->pdf_sample_ray(time, wavelengths, sampler->next_2d(), sampler->next_2d());
         Float pdf_pos = ps.pdf;
-        Float pdf_dir = emitter->pdf_ray_dir(ray, ps);
-        Vertex3f vert(ray, ps, emitter, pdf_pos * pdf_emitter, throughput);
 
-        throughput *= ray_weight;
+        Spectrum throughput = emitter_idx_weight *
+                              dr::select(is_inf,
+                                         dr::rcp(pdf_dir),
+                                         dr::rcp(pdf_pos));
+        Float pdf_emitter = scene->pdf_emitter(emitter_idx);
+        Float pdf_fwd = dr::select(is_inf, pdf_dir, pdf_pos) * pdf_emitter;
+        Vertex3f vert(ray, ps, emitter, pdf_fwd, throughput);
+
+        throughput = emitter_idx_weight * ray_weight;
         UInt32 idx = dr::arange<UInt32>(dr::width(time)) * m_max_depth;
+        pdf_fwd = dr::select(is_inf, pdf_pos, pdf_dir);
         UInt32 n_verts = random_walk(BSDFContext(TransportMode::Importance),
-                                     scene, sampler, ray, vertices, vert, throughput, idx, m_max_depth - 1, pdf_dir) + 1;
-
-        // Correct PDF for infinite lights
-        Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
-        vert.pdf_fwd = dr::select(is_inf, pdf_dir * pdf_emitter, vert.pdf_fwd);
-        dr::scatter(vertices, vert, idx, is_inf);
-        idx++;
-        vert = dr::gather<Vertex3f>(vertices, idx, is_inf);
-        vert.pdf_fwd = pdf_pos * dr::abs_dot(vert.n, ray.d);
-        dr::scatter(vertices, vert, idx, is_inf);
-
+                                     scene, sampler, ray, vertices, vert,
+                                     throughput, idx, m_max_depth - 1, pdf_fwd) + 1;
         return n_verts;
     }
 

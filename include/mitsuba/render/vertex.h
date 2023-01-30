@@ -72,13 +72,21 @@ struct Vertex {
      *
      * Used to create intermediate vertices
      */
-    Vertex(const SurfaceInteraction3f &si,
+    Vertex(const Vertex &prev,
+           const SurfaceInteraction3f &si,
            Float pdf)
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
           time(si.time), wavelengths(si.wavelengths), J(si.J),
           dist(si.t), bsdf(si.bsdf()) {
+        Mask is_inf = has_flag(prev.emitter->flags(), EmitterFlags::Infinite);
+        // If previous vertex is infinite light, `pdf` is area probability density.
+        // Otherwise, `pdf` is directional
+        pdf_fwd = pdf * dr::abs_dot(n, si.wi) *
+                  dr::select(is_inf, 1.f, dr::rcp(dr::sqr(dist)));
+        // If next vertex is infinite light, `pdf_fwd` stores directional probability density,
+        // Otherwise, `pdf_fwd` stores surface area probability density
         pdf_fwd = dr::select(si.is_valid(),
-                        pdf * dr::rcp(dr::sqr(dist)) * dr::abs_dot(n, si.wi),
+                        pdf_fwd,
                         pdf);
     }
 

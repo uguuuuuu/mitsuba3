@@ -60,6 +60,33 @@ Endpoint<Float, Spectrum>::sample_ray(Float /*time*/,
     NotImplementedError("sample_ray");
 }
 
+MI_VARIANT std::pair<typename Endpoint<Float, Spectrum>::Ray3f, Spectrum>
+Endpoint<Float, Spectrum>::sample_ray(Float /*time*/,
+                                      const Wavelength & /*wavelengths*/,
+                                      const Point2f & /*sample2*/,
+                                      const Point2f & /*sample3*/,
+                                      Mask /*active*/) const {
+    NotImplementedError("sample_ray");
+}
+
+MI_VARIANT std::pair<typename Endpoint<Float, Spectrum>::Ray3f, Spectrum>
+Endpoint<Float, Spectrum>::sample_ray(Float /*time*/,
+                                      Float /*sample1*/,
+                                      const Point2f & /*sample2*/,
+                                      const PositionSample3f & /*ps*/,
+                                      Mask /*active*/) const {
+    NotImplementedError("sample_ray");
+}
+
+MI_VARIANT std::pair<typename Endpoint<Float, Spectrum>::Ray3f, Spectrum>
+Endpoint<Float, Spectrum>::sample_ray_dir(Float /*time*/,
+                                          const Wavelength & /*wavelengths*/,
+                                          const Point2f & /*sample2*/,
+                                          const PositionSample3f & /*ps*/,
+                                          Mask /*active*/) const {
+    NotImplementedError("sample_ray_dir");
+}
+
 MI_VARIANT std::pair<typename Endpoint<Float, Spectrum>::DirectionSample3f, Spectrum>
 Endpoint<Float, Spectrum>::sample_direction(const Interaction3f & /*it*/,
                                             const Point2f & /*sample*/,
@@ -80,6 +107,19 @@ Endpoint<Float, Spectrum>::sample_wavelengths(const SurfaceInteraction3f & /*si*
                                               Float /*sample*/,
                                               Mask /*active*/) const {
     NotImplementedError("sample_wavelengths");
+}
+
+MI_VARIANT std::pair<Float, Float>
+Endpoint<Float, Spectrum>::pdf_ray(const Ray3f & /*ray*/,
+                                   Mask /*active*/) const {
+    NotImplementedError("pdf_ray");
+}
+
+MI_VARIANT Float
+Endpoint<Float, Spectrum>::pdf_ray_dir(const Ray3f & /*ray*/,
+                                       const PositionSample3f & /*ps*/,
+                                       Mask /*active*/) const {
+    NotImplementedError("pdf_ray_dir");
 }
 
 MI_VARIANT Float Endpoint<Float, Spectrum>::pdf_direction(const Interaction3f & /*it*/,
@@ -109,6 +149,17 @@ MI_VARIANT Spectrum Endpoint<Float, Spectrum>::eval(const SurfaceInteraction3f &
                                                      Mask /*active*/) const {
     NotImplementedError("eval");
 }
+
+MI_VARIANT
+std::tuple<typename Endpoint<Float, Spectrum>::PositionSample3f, Float,
+           typename Endpoint<Float, Spectrum>::Ray3f, Spectrum>
+Endpoint<Float, Spectrum>::pdf_sample_ray(Float /*time*/,
+                                         const Wavelength & /*wavelengths*/,
+                                         const Point2f & /*sample2*/,
+                                         const Point2f & /*sample3*/,
+                                         Mask /*active*/) const {
+        NotImplementedError("pdf_sample_ray");
+};
 
 MI_VARIANT void Endpoint<Float, Spectrum>::traverse(TraversalCallback *callback) {
     if (m_medium)

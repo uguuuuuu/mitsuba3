@@ -379,6 +379,118 @@ public:
         return std::make_pair(ray, weight & active);
     }
 
+    std::pair<Ray3f, Spectrum> sample_ray(Float time, const Wavelength &wavelengths,
+                                          const Point2f &sample2,
+                                          const Point2f &sample3,
+                                          Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
+
+        // 1. Sample spatial component
+        Point2f offset = warp::square_to_uniform_disk_concentric(sample2);
+
+        // 2. Sample directional component
+        auto [uv, pdf] = m_warp.sample(sample3, nullptr, active);
+        uv.x() += .5f / (m_data.shape(1) - 1);
+
+        active &= pdf > 0.f;
+
+        Float theta = uv.y() * dr::Pi<Float>,
+              phi   = uv.x() * dr::TwoPi<Float>;
+
+        Vector3f d = dr::sphdir(theta, phi);
+        d = Vector3f(d.y(), d.z(), -d.x());
+
+        Float inv_sin_theta = dr::safe_rsqrt(dr::sqr(d.x()) + dr::sqr(d.z()));
+        pdf *= inv_sin_theta * dr::InvTwoPi<Float> * dr::InvPi<Float>;
+
+        // Unlike \ref sample_direction, ray goes from the envmap toward the scene
+        Vector3f d_global = m_to_world.value().transform_affine(-d);
+
+        // Compute ray origin
+        Vector3f perpendicular_offset =
+            Frame3f(d).to_world(Vector3f(offset.x(), offset.y(), 0));
+        Point3f origin =
+            m_bsphere.center + (perpendicular_offset - d_global) * m_bsphere.radius;
+
+        Spectrum weight = eval_spectrum(uv, wavelengths, active);
+        ScalarFloat r2 = dr::sqr(m_bsphere.radius);
+        Ray3f ray(origin, d_global, time, wavelengths);
+        weight *= dr::Pi<Float> * r2 / pdf;
+
+        return std::make_pair(ray, weight & active);
+    }
+
+    std::pair<Float, Float>
+    pdf_ray(const Ray3f &ray, Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
+
+        Float pdf_pos = dr::select(active,
+                                   dr::InvPi<Float> * dr::rcp(dr::sqr(m_bsphere.radius)),
+                                   0.f);
+
+        Float pdf_dir = pdf_ray_dir(ray, dr::zeros<PositionSample3f>(), active);
+
+        return { pdf_pos, pdf_dir };
+    }
+
+    Float pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
+
+        DirectionSample3f ds(ps);
+        ds.d = -ray.d;
+
+        return dr::select(active,
+                          pdf_direction(dr::zeros<Interaction3f>(), ds, active),
+                          0.f);
+    }
+
+    std::tuple<PositionSample3f, Float, Ray3f, Spectrum>
+    pdf_sample_ray(Float time,
+                   const Wavelength &wavelengths,
+                   const Point2f &sample2,
+                   const Point2f &sample3,
+                   Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
+
+        // 1. Sample spatial component
+        Point2f offset = warp::square_to_uniform_disk_concentric(sample2);
+        Float pdf_pos = dr::InvPi<Float> * dr::rcp(dr::sqr(m_bsphere.radius));
+
+        // 2. Sample directional component
+        auto [uv, pdf_dir] = m_warp.sample(sample3, nullptr, active);
+        uv.x() += .5f / (m_data.shape(1) - 1);
+
+        active &= pdf_dir > 0.f;
+
+        Float theta = uv.y() * dr::Pi<Float>,
+              phi   = uv.x() * dr::TwoPi<Float>;
+
+        Vector3f d = dr::sphdir(theta, phi);
+        d = Vector3f(d.y(), d.z(), -d.x());
+
+        Float inv_sin_theta = dr::safe_rsqrt(dr::sqr(d.x()) + dr::sqr(d.z()));
+        pdf_dir *= inv_sin_theta * dr::InvTwoPi<Float> * dr::InvPi<Float>;
+
+        // Unlike \ref sample_direction, ray goes from the envmap toward the scene
+        Vector3f d_global = m_to_world.value().transform_affine(-d);
+
+        // Compute ray origin
+        Vector3f perpendicular_offset =
+            Frame3f(d).to_world(Vector3f(offset.x(), offset.y(), 0));
+        Point3f origin =
+            m_bsphere.center + (perpendicular_offset - d_global) * m_bsphere.radius;
+        PositionSample3f ps(origin, d_global, uv, time, pdf_pos, false, 1.f);
+
+        Spectrum weight = eval_spectrum(uv, wavelengths, active);
+        Ray3f ray(origin, d_global, time, wavelengths);
+        weight /=  pdf_pos * pdf_dir;
+
+        return { ps,
+                 pdf_dir,
+                 ray,
+                 depolarizer<Spectrum>(weight) };
+    }
+
     std::pair<DirectionSample3f, Spectrum>
     sample_direction(const Interaction3f &it, const Point2f &sample,
                      Mask active) const override {

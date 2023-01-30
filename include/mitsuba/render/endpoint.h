@@ -157,6 +157,45 @@ public:
                const Point2f &sample3, Mask active = true) const;
 
     /**
+     * \brief Importance sample a ray proportional to the endpoint's
+     * sensitivity/emission profile.
+     *
+     * The endpoint profile is a six-dimensional quantity that depends on time,
+     * wavelength, surface position, and direction. This function takes a given
+     * time value, wavelengths value, and four uniformly distributed samples on the interval [0, 1]
+     * and warps them so that the returned ray follows the profile. Any
+     * discrepancies between ideal and actual sampled profile are absorbed into
+     * a spectral importance weight that is returned along with the ray.
+     *
+     * \param time
+     *    The scene time associated with the ray to be sampled
+     *
+     * \param wavelengths
+     *     Spectral component of sampled ray
+     *
+     * \param sample2
+     *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. For
+     *    sensor endpoints, this argument corresponds to the sample position in
+     *    fractional pixel coordinates relative to the crop window of the
+     *    underlying film.
+     *    This argument is ignored if <tt>needs_sample_2() == false</tt>.
+     *
+     * \param sample3
+     *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. For
+     *    sensor endpoints, this argument determines the position on the
+     *    aperture of the sensor.
+     *    This argument is ignored if <tt>needs_sample_3() == false</tt>.
+     *
+     * \return
+     *    The sampled ray and (potentially spectrally varying) importance
+     *    weights. The latter account for the difference between the profile
+     *    and the actual used sampling density function.
+     */
+    virtual std::pair<Ray3f, Spectrum>
+    sample_ray(Float time, const Wavelength &wavelengths, const Point2f &sample2,
+               const Point2f &sample3, Mask active = true) const;
+
+    /**
      * \brief Sample ray given position on the endpoint
      * \param time
      *    The scene time associated with the ray to be sampled
@@ -190,7 +229,7 @@ public:
      * \param wavelengths
      *    wavelengths of ray
      *
-     * \param sample
+     * \param sample2
      *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. Used
      *    to sample ray direction
      *
@@ -204,7 +243,7 @@ public:
      */
     virtual std::pair<Ray3f, Spectrum>
         sample_ray_dir(Float time, const Wavelength &wavelengths,
-                   const Point2f &sample, const PositionSample3f &ps,
+                   const Point2f &sample2, const PositionSample3f &ps,
                    Mask active = true) const;
     /**
      * \brief Evaluate positional PDF of ray origin and directional
@@ -233,6 +272,46 @@ public:
      */
     virtual Float
     pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active = true) const;
+
+    /**
+     * \brief Jointly evaluate PDF and importance sample a ray proportional to the endpoint's
+     * sensitivity/emission profile.
+     *
+     * The endpoint profile is a six-dimensional quantity that depends on time,
+     * wavelength, surface position, and direction. This function takes a given
+     * time value and five uniformly distributed samples on the interval [0, 1]
+     * and warps them so that the returned ray follows the profile. Any
+     * discrepancies between ideal and actual sampled profile are absorbed into
+     * a spectral importance weight that is returned along with the ray.
+     *
+     * \param time
+     *    The scene time associated with the ray to be sampled
+     *
+     * \param wavelengths
+     *     Spectral component of sampled ray
+     *
+     * \param sample2
+     *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. For
+     *    sensor endpoints, this argument corresponds to the sample position in
+     *    fractional pixel coordinates relative to the crop window of the
+     *    underlying film.
+     *    This argument is ignored if <tt>needs_sample_2() == false</tt>.
+     *
+     * \param sample3
+     *    A uniformly distributed sample on the domain <tt>[0,1]^2</tt>. For
+     *    sensor endpoints, this argument determines the position on the
+     *    aperture of the sensor.
+     *    This argument is ignored if <tt>needs_sample_3() == false</tt>.
+     *
+     * \return
+     *    Positional PDF, directional PDF, The sampled ray,
+     *    and (potentially spectrally varying) importance
+     *    weight. The weight accounts for the discrepency between the profile
+     *    and the actual used sampling density function.
+     */
+    virtual std::tuple<PositionSample3f, Float, Ray3f, Spectrum>
+    pdf_sample_ray(Float time, const Wavelength &wavelengths, const Point2f &sample2,
+               const Point2f &sample3, Mask active = true) const;
 
     //! @}
     // =============================================================
