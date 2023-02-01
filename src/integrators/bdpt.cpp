@@ -117,6 +117,10 @@ public:
         Spectrum result(0.f);
 
 #ifndef USE_MIS
+        // When not using MIS, we fix all the vertices of a path
+        // to be light vertices except for the first vertex.
+        // So effectively the BDPT becomes a particle tracer
+        // in this case.
         Mask active = true;
         UInt32 depth = 1;
         dr::Loop<Bool> loop("Connect Subpaths",
@@ -124,9 +128,17 @@ public:
         while (loop(active)) {
 
         }
+
+#elifndef CONNECT
+        // When not connecting subpaths, we fix all the vertices of a path
+        // to be camera vertices except for the last vertex.
+        // For the last vertex, we use MIS to combine BSDF sampling
+        // and light sampling. So effectively the BDPT becomes a path tracer
+        // in this case.
 #endif
 
 #ifdef USE_MIS
+#ifdef CONNECT
         // t = 1, s = 1
         // Sample emitter and sensor and connect
         // Sample emitter
@@ -211,6 +223,7 @@ public:
                 result += connect_bdpt();
             }
         }
+#endif
 #endif
     }
 
@@ -384,7 +397,7 @@ public:
         return n_verts;
     }
 
-#ifdef USE_MIS
+#ifdef CONNECT
     Spectrum connect_bdpt() const {
         return 1.f;
         // Handle the case where the camera vertex is on a light and s != 0
@@ -407,6 +420,7 @@ public:
 #endif
 
 #ifdef USE_MIS
+#ifdef CONNECT
     Float mis_weight(const Vertex3f &verts_camera,
                      const Vertex3f &verts_light,
                      UInt32 t, UInt32 s) const {
@@ -433,6 +447,13 @@ public:
         return dr::rcp(1 + sum_ri);
 
     }
+#else
+    /**
+     *  \brief MIS weight of one of two candidate strategies
+     *  using the power heuristic
+     */
+    Float mis_weight() const;
+#endif
 #endif
 
     MI_DECLARE_CLASS()
