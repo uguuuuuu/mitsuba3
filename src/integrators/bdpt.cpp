@@ -4,6 +4,7 @@
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/integrator.h>
 #include <mitsuba/render/vertex.h>
+#include <mitsuba/render/records.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -121,12 +122,17 @@ public:
         // to be light vertices except for the first vertex.
         // So effectively the BDPT becomes a particle tracer
         // in this case.
-        Mask active = true;
+        sample_visible_emitters(scene, sensor, sampler, block, sample_scale, ray.time, ray.wavelengths);
         UInt32 depth = 1;
+        UInt32 idx = dr::arange<UInt32>(width) * m_max_depth;
+        Mask active = (depth < m_max_depth) && (n_light_verts > depth);
         dr::Loop<Bool> loop("Connect Subpaths",
-                            depth, active);
+                            depth, idx, active);
         while (loop(active)) {
-
+            idx++;
+            Vertex3f vert = dr::gather<Vertex3f>(verts_light, idx);
+            SurfaceInteraction3f si(vert);
+            connect_sensor(scene,)
         }
 
 #elifndef CONNECT
@@ -278,13 +284,12 @@ public:
             // Find and populate next vertex
             SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
-            Vertex3f curr_vert(prev_vert, si, pdf_fwd);
-            curr_vert.throughput = throughput;
+            Vertex3f curr_vert(prev_vert, si, pdf_fwd, throughput);
+            if (bsdf_ctx.mode == TransportMode::Importance)
+                curr_vert.emitter = si.emitter(scene);
             BSDFPtr bsdf = si.bsdf(ray);
             auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
             bsdf_weight = si.to_world_mueller(bsdf_weight, -bsdf_sample.wo, si.wi);
-            curr_vert.d = bsdf_sample.wo;
-            curr_vert.emitter = si.emitter(scene);
 
             // Compute previous vertex's pdf_rev
             bsdf_ctx.reverse();
@@ -380,10 +385,10 @@ public:
             emitter->pdf_sample_ray(time, wavelengths, sampler->next_2d(), sampler->next_2d());
         Float pdf_pos = ps.pdf;
 
-        Spectrum throughput = emitter_idx_weight *
+        Spectrum throughput = emitter_idx_weight /
                               dr::select(is_inf,
-                                         dr::rcp(pdf_dir),
-                                         dr::rcp(pdf_pos));
+                                         pdf_dir,
+                                         pdf_pos);
         Float pdf_emitter = scene->pdf_emitter(emitter_idx);
         Float pdf_fwd = dr::select(is_inf, pdf_dir, pdf_pos) * pdf_emitter;
         Vertex3f vert(ray, ps, emitter, pdf_fwd, throughput);
@@ -454,6 +459,127 @@ public:
      */
     Float mis_weight() const;
 #endif
+#endif
+
+#ifndef USE_MIS
+    Spectrum connect_sensor(const Scene *scene,
+                            const SurfaceInteraction3f &si,
+                            const DirectionSample3f &sensor_ds,
+                            const BSDFPtr &bsdf,
+                            const Spectrum &weight,
+                            ImageBlock *block,
+                            ScalarFloat sample_scale,
+                            Mask active = true) const {
+        active &= (sensor_ds.pdf > 0.f) &&
+                dr::any(dr::neq(unpolarized_spectrum(weight), 0.f));
+        if (dr::none_or<false>(active))
+            return 0.f;
+
+        // Visibility test
+        Ray3f sensor_ray = si.spawn_ray_to(sensor_ds.p);
+        active &= !scene->ray_test(sensor_ray, active);
+        if (dr::none_or<false>(active))
+            return 0.f;
+
+        Spectrum result = 0.f;
+        Spectrum surface_weight = 1.f;
+        Vector3f local_d = si.to_local(sensor_ray.d);
+        Mask on_surface = active && dr::neq(si.shape, nullptr);
+        if (dr::any_or<true>(on_surface)) {
+            surface_weight[on_surface && dr::eq(bsdf, nullptr)] *=
+                dr::maximum(0.f, Frame3f::cos_theta(local_d));
+
+            on_surface &= dr::neq(bsdf, nullptr);
+            if (dr::any_or<true>(on_surface)) {
+                BSDFContext ctx(TransportMode::Importance);
+                Float wi_dot_geo_n = dr::dot(si.n, si.to_world(si.wi)),
+                      wo_dot_geo_n = dr::dot(si.n, sensor_ray.d);
+
+                // Prevent light leaks due to shading normals
+                Mask valid = (wi_dot_geo_n * Frame3f::cos_theta(si.wi) > 0.f) &&
+                             (wo_dot_geo_n * Frame3f::cos_theta(local_d) > 0.f);
+
+                // Adjoint BSDF for shading normals
+                Float correction = dr::select(valid,
+                    dr::abs((Frame3f::cos_theta(si.wi) * wo_dot_geo_n) /
+                            (Frame3f::cos_theta(local_d) * wi_dot_geo_n)),
+                    0.f);
+
+                surface_weight[on_surface] *=
+                correction * bsdf->eval(ctx, si, local_d, on_surface);
+            }
+        }
+
+        Mask not_on_surface = active && dr::eq(si.shape, nullptr) && dr::eq(bsdf, nullptr);
+        if (dr::any_or<true>(not_on_surface)) {
+            Mask invalid_side = Frame3f::cos_theta(local_d) <= 0.f;
+            surface_weight[not_on_surface && invalid_side] = 0.f;
+        }
+
+        result = weight * surface_weight * sample_scale;
+
+        Float alpha = dr::select(dr::neq(bsdf, nullptr), 1.f, 0.f);
+        Vector2f adjusted_position = sensor_ds.uv + block->offset();
+
+        block->put(adjusted_position, si.wavelengths, result, alpha, 0.f, active);
+
+        return result;
+    }
+
+    // TODO: Delta lights ignored for now
+    void sample_visible_emitters(const Scene *scene,
+                                 const Sensor *sensor,
+                                 Sampler *sampler,
+                                 ImageBlock *block,
+                                 ScalarFloat sample_scale,
+                                 Float time,
+                                 const Wavelength &wavelengths) const {
+        auto [emitter_idx, emitter_idx_weight, _] =
+            scene->sample_emitter(sampler->next_1d());
+        EmitterPtr emitter =
+            dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
+
+        Spectrum emitter_weight = dr::zeros<Spectrum>();
+        SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+
+        // Sample direction for infinite emitters
+        Mask is_infinite = has_flag(emitter->flags(), EmitterFlags::Infinite);
+        if (dr::any_or<true>(is_infinite)) {
+            Interaction3f ref_it(0.f, time, wavelengths,
+                                 sensor->world_transform().translation());
+            auto [ds, dir_weight] = emitter->sample_direction(
+                ref_it, sampler->next_2d(is_infinite), is_infinite);
+
+            // Convert solid angle measure to area measure
+            emitter_weight[is_infinite] =
+                dr::select(ds.pdf > 0.f, dr::rcp(ds.pdf), 0.f) *
+                dr::sqr(ds.dist);
+            si[is_infinite] = SurfaceInteraction3f(ds, wavelengths);
+        }
+
+        // Sample position for finite emitters
+        if (dr::any_or<true>(!is_infinite)) {
+            auto [ps, pos_weight] =
+            emitter->sample_position(time, sampler->next_2d(!is_infinite), !is_infinite);
+
+            emitter_weight[!is_infinite] = pos_weight;
+            si[!is_infinite] = SurfaceInteraction3f(ps, wavelengths);
+        }
+
+        // Sample direction toward sensor
+        Point2f aperture_sample;
+        if (sensor->needs_aperture_sample()) {
+            aperture_sample = sampler->next_2d();
+        }
+        auto [sensor_ds, sensor_weight] = sensor->sample_direction(si, aperture_sample);
+        si.wi = sensor_ds.d;
+        si.shape = emitter->shape();
+
+        Spectrum radiance = emitter->eval(si);
+        Spectrum weight = emitter_idx_weight * emitter_weight * sensor_weight * radiance;
+
+        connect_sensor(scene, si, sensor_ds, nullptr, weight, block, sample_scale);
+    }
 #endif
 
     MI_DECLARE_CLASS()

@@ -195,6 +195,7 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
 
     using Index            = typename CoreAliases::UInt32;
     using PositionSample3f = typename RenderAliases::PositionSample3f;
+    using Vertex3f         = typename RenderAliases::Vertex3f;
 
     //! @}
     // =============================================================
@@ -258,6 +259,14 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
         : Base(0.f, ps.time, wavelengths, ps.p, ps.n, ps.J), uv(ps.uv),
           sh_frame(Frame3f(ps.n)), dp_du(0), dp_dv(0), dn_du(0), dn_dv(0),
           duv_dx(0), duv_dy(0), wi(0), prim_index(0), boundary_test(0) {}
+
+    /**
+     * Construct from a path vertex.
+     */
+    explicit SurfaceInteraction(const Vertex3f &vert)
+        : Base(vert.dist, vert.time, vert.wavelengths, vert.p, vert.n, vert.J),
+          uv(vert.uv), sh_frame(vert.sh_frame), dp_du(0), dp_dv(0), dn_du(0), dn_dv(0),
+          duv_dx(0), duv_dy(0), wi(vert.d), prim_index(0), boundary_test(0) {}
 
     /// Initialize local shading frame using Gram-schmidt orthogonalization
     void initialize_sh_frame() {

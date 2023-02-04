@@ -1,7 +1,9 @@
 #pragma once
 
-#include <drjit/struct.h>
-#include <mitsuba/core/fwd.h>
+#include <mitsuba/core/frame.h>
+#include <mitsuba/core/profiler.h>
+#include <mitsuba/core/ray.h>
+#include <mitsuba/core/spectrum.h>
 #include <mitsuba/render/fwd.h>
 
 NAMESPACE_BEGIN(mitsuba)
@@ -48,10 +50,10 @@ struct Vertex {
 
     Float J = 1.f;
 
-    /// Direction from this vertex to next vertex
+    /// Direction from this vertex to previous vertex
     Vector3f d;
 
-    /// Distance from previous vertex to this vertex
+    /// Distance from this vertex to previous vertex
     Float dist = dr::Infinity<Float>;
 
     EmitterPtr emitter = nullptr;
@@ -74,10 +76,11 @@ struct Vertex {
      */
     Vertex(const Vertex &prev,
            const SurfaceInteraction3f &si,
-           Float pdf)
+           Float pdf,
+           Spectrum throughput)
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
           time(si.time), wavelengths(si.wavelengths), J(si.J),
-          dist(si.t), bsdf(si.bsdf()) {
+          d(si.wi), dist(si.t), bsdf(si.bsdf()), throughput(throughput) {
         Mask is_inf = has_flag(prev.emitter->flags(), EmitterFlags::Infinite);
         // If previous vertex is infinite light, `pdf` is area probability density.
         // Otherwise, `pdf` is directional
@@ -131,7 +134,7 @@ struct Vertex {
 
     DRJIT_STRUCT(Vertex, p, n, sh_frame, uv, time, wavelengths,
                  pdf_fwd, pdf_rev, J, d, dist, emitter,
-                 bsdf, throughput)
+                 bsdf, throughput);
 };
 
 NAMESPACE_END(mitsuba)
