@@ -51,6 +51,8 @@ public:
 
         auto [ray, ray_weight] = sensor->sample_ray_differential(
             time, wavelength_sample, adjusted_pos, aperture_sample);
+        // Note wav_weight is already included in ray_weight, but we need
+        // it when connecting light subpaths to the sensor
         auto [_, wav_weight] = sensor->sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
             wavelength_sample);
 
@@ -115,26 +117,37 @@ public:
         Vertex3f verts_light = dr::empty<Vertex3f>(width * m_max_depth);
         UInt32 n_light_verts = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths, verts_light);
 
-        Spectrum result(0.f);
-
 #ifndef USE_MIS
         // When not using MIS, we fix all the vertices of a path
         // to be light vertices except for the first vertex.
         // So effectively the BDPT becomes a particle tracer
         // in this case.
-        sample_visible_emitters(scene, sensor, sampler, block, sample_scale, ray.time, ray.wavelengths);
+        sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
+                                ray.time, ray.wavelengths, wav_weight);
         UInt32 depth = 1;
         UInt32 idx = dr::arange<UInt32>(width) * m_max_depth;
-        Mask active = (depth < m_max_depth) && (n_light_verts > depth);
-        dr::Loop<Bool> loop("Connect Subpaths",
+        Mask active = depth < n_light_verts;
+        dr::Loop<Bool> loop("Connect Sensor",
                             depth, idx, active);
         while (loop(active)) {
             idx++;
+
             Vertex3f vert = dr::gather<Vertex3f>(verts_light, idx);
             SurfaceInteraction3f si(vert);
-            connect_sensor(scene,)
+            Point2f aperture_sample;
+            if (sensor->needs_aperture_sample())
+                aperture_sample = sampler->next_2d();
+            auto [sensor_ds, sensor_weight] =
+                sensor->sample_direction(si, aperture_sample);
+            Spectrum weight = vert.throughput * sensor_weight * wav_weight;
+            connect_sensor(scene, si, sensor_ds, vert.bsdf, weight, block, sample_scale);
+
+            // Check for termination
+            depth++;
+            active &= depth < n_light_verts;
         }
 
+        return { 0.f, false };
 #elifndef CONNECT
         // When not connecting subpaths, we fix all the vertices of a path
         // to be camera vertices except for the last vertex.
@@ -276,6 +289,7 @@ public:
             return 0;
 
         Ray3f ray = Ray3f(ray_);
+        Mask active_ = active;
         UInt32 n_verts = 0;
         dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, throughput, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
@@ -297,8 +311,10 @@ public:
             si.wi = bsdf_sample.wo;
             Float pdf_bsdf = bsdf->pdf(bsdf_ctx, si, wo);
             Float pdf_pos = pdf_bsdf * dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
+            si.wi = wo;
+            bsdf_ctx.reverse();
             if (bsdf_ctx.mode == TransportMode::Radiance) {
-                // Handle the case where the next vertex is on the environment map.
+                // Handle the case where the current vertex is on the environment map.
                 // Note the reverse PDF is not correct for sensor vertices,
                 // but we don't need PDFs of sensor vertices anyway
                 Float pdf_env =
@@ -313,8 +329,6 @@ public:
                 Mask is_inf = has_flag(prev_vert.emitter->flags(), EmitterFlags::Infinite);
                 prev_vert.pdf_rev = dr::select(is_inf, pdf_bsdf, pdf_pos);
             }
-            si.wi = wo;
-            bsdf_ctx.reverse();
 
             // Scatter previous vertex into `vertices`
             UInt32 idx = offset + n_verts;
@@ -337,13 +351,11 @@ public:
         // We allow environment maps to be the last vertex
         // of camera subpaths but not of light subpaths
         if (bsdf_ctx.mode == TransportMode::Importance) {
-            active = dr::neq(prev_vert.dist, dr::Infinity<Float>);
+            Mask is_inf = dr::eq(prev_vert.dist, dr::Infinity<Float>);
+            n_verts -= dr::select(active_ & is_inf, 1, 0);
+            active_ &= !is_inf;
         }
-        else {
-            active = true;
-        }
-        dr::scatter(vertices, prev_vert, idx, active);
-        n_verts -= dr::select(active, 0, 1);
+        dr::scatter(vertices, prev_vert, idx, active_);
 
         Assert(!dr::any(n_verts > max_depth));
 
@@ -379,7 +391,7 @@ public:
             dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
         Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
 
-        // Sample position on emitter and ray from emitter
+        // Sample ray from emitter
         // Note ray_weight includes radiance
         auto [ps, pdf_dir, ray, ray_weight] =
             emitter->pdf_sample_ray(time, wavelengths, sampler->next_2d(), sampler->next_2d());
@@ -533,7 +545,8 @@ public:
                                  ImageBlock *block,
                                  ScalarFloat sample_scale,
                                  Float time,
-                                 const Wavelength &wavelengths) const {
+                                 const Wavelength &wavelengths,
+                                 const Spectrum &wav_weight) const {
         auto [emitter_idx, emitter_idx_weight, _] =
             scene->sample_emitter(sampler->next_1d());
         EmitterPtr emitter =
@@ -576,7 +589,7 @@ public:
         si.shape = emitter->shape();
 
         Spectrum radiance = emitter->eval(si);
-        Spectrum weight = emitter_idx_weight * emitter_weight * sensor_weight * radiance;
+        Spectrum weight = emitter_idx_weight * emitter_weight * sensor_weight * radiance * wav_weight;
 
         connect_sensor(scene, si, sensor_ds, nullptr, weight, block, sample_scale);
     }
