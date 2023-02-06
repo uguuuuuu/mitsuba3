@@ -235,7 +235,9 @@ public:
         return { ray, wav_weight };
     }
 
-    std::pair<Float, Float> pdf_ray(const Ray3f &ray, Mask active) const override {
+    std::pair<Float, Float> pdf_ray(const Ray3f &ray,
+                                    const PositionSample3f &,
+                                    Mask active) const override {
         Vector3f local_d = m_to_world.value().inverse() * ray.d;
         return {1.f, importance(local_d)};
     }

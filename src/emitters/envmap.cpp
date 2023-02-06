@@ -379,7 +379,7 @@ public:
         return std::make_pair(ray, weight & active);
     }
 
-    std::pair<Ray3f, Spectrum> sample_ray(Float time, const Wavelength &wavelengths,
+    std::pair<Ray3f, Spectrum> sample_ray_1(Float time, const Wavelength &wavelengths,
                                           const Point2f &sample2,
                                           const Point2f &sample3,
                                           Mask active) const override {
@@ -420,28 +420,52 @@ public:
         return std::make_pair(ray, weight & active);
     }
 
+    std::pair<Ray3f, Spectrum> sample_ray_3(Float /*time*/, Float /*sample1*/,
+                                          const Point2f & /*sample2*/,
+                                          const PositionSample3f & /*ps*/,
+                                          Mask /*active*/) const override {
+        if constexpr (dr::is_jit_v<Float>) {
+            /* Do not throw an exception in JIT-compiled variants. This
+               function might be invoked by DrJit's virtual function call
+               recording mechanism despite not influencing any actual
+               calculation. */
+            return { dr::zeros<Ray3f>(), dr::NaN<Float> };
+        } else {
+            NotImplementedError("sample_ray_3");
+        }
+    }
+
+    std::pair<Ray3f, Spectrum> sample_ray_13(Float /*time*/,
+                                          const Wavelength & /*wavelengths*/,
+                                          const Point2f & /*sample2*/,
+                                          const PositionSample3f & /*ps*/,
+                                          Mask /*active*/) const override {
+        if constexpr (dr::is_jit_v<Float>) {
+            /* Do not throw an exception in JIT-compiled variants. This
+               function might be invoked by DrJit's virtual function call
+               recording mechanism despite not influencing any actual
+               calculation. */
+            return { dr::zeros<Ray3f>(), dr::NaN<Float> };
+        } else {
+            NotImplementedError("sample_ray_13");
+        }
+    }
+
     std::pair<Float, Float>
-    pdf_ray(const Ray3f &ray, Mask active) const override {
+    pdf_ray(const Ray3f &ray, const PositionSample3f &, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
 
         Float pdf_pos = dr::select(active,
                                    dr::InvPi<Float> * dr::rcp(dr::sqr(m_bsphere.radius)),
                                    0.f);
 
-        Float pdf_dir = pdf_ray_dir(ray, dr::zeros<PositionSample3f>(), active);
+        DirectionSample3f ds = dr::zeros<DirectionSample3f>();
+        ds.d = -ray.d;
+        Float pdf_dir = dr::select(active,
+                                   pdf_direction(dr::zeros<Interaction3f>(), ds, active),
+                                   0.f);
 
         return { pdf_pos, pdf_dir };
-    }
-
-    Float pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
-
-        DirectionSample3f ds(ps);
-        ds.d = -ray.d;
-
-        return dr::select(active,
-                          pdf_direction(dr::zeros<Interaction3f>(), ds, active),
-                          0.f);
     }
 
     std::tuple<PositionSample3f, Float, Ray3f, Spectrum>

@@ -16,11 +16,12 @@ struct Vertex {
 
     using Float = Float_;
     using Spectrum = Spectrum_;
+
     MI_IMPORT_RENDER_BASIC_TYPES()
     MI_IMPORT_OBJECT_TYPES()
+
     using SurfaceInteraction3f = typename RenderAliases::SurfaceInteraction3f;
     using PositionSample3f = typename RenderAliases::PositionSample3f;
-    using DirectionSample3f = typename RenderAliases::DirectionSample3f;
 
 
     //! @}
@@ -81,6 +82,7 @@ struct Vertex {
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
           time(si.time), wavelengths(si.wavelengths), J(si.J),
           d(si.wi), dist(si.t), bsdf(si.bsdf()), throughput(throughput) {
+
         Mask is_inf = has_flag(prev.emitter->flags(), EmitterFlags::Infinite);
         // If previous vertex is infinite light, `pdf` is area probability density.
         // Otherwise, `pdf` is directional
@@ -107,27 +109,12 @@ struct Vertex {
            Spectrum throughput)
         : p(ray.o), n(ps.n), sh_frame(ps.n), uv(ps.uv),
           time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
-          J(ps.J), throughput(throughput) {}
+          J(ps.J), emitter(emitter), throughput(throughput) {}
 
     void zero_(size_t size = 1) {
         dist = dr::full<Float>(dr::Infinity<Float>, size);
         J = dr::full<Float>(1.f, size);
     }
-
-//    void set_emitter(const Scene *scene,
-//                     const SurfaceInteraction3f &si,
-//                     Mask active) {
-//        emitter = si.emitter(scene, active);
-//    }
-//
-//    void sample(const BSDFContext &ctx,
-//                Vertex &prev,
-//                Float sample1,
-//                Point2f sample2) {
-//        SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
-//        si.
-//        bsdf->eval_pdf_sample(ctx, )
-//    }
 
     //! @}
     // =============================================================

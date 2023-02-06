@@ -192,7 +192,7 @@ public:
      *    and the actual used sampling density function.
      */
     virtual std::pair<Ray3f, Spectrum>
-    sample_ray(Float time, const Wavelength &wavelengths, const Point2f &sample2,
+    sample_ray_1(Float time, const Wavelength &wavelengths, const Point2f &sample2,
                const Point2f &sample3, Mask active = true) const;
 
     /**
@@ -217,7 +217,7 @@ public:
      *    and the actual used sampling density function.
      */
     virtual std::pair<Ray3f, Spectrum>
-    sample_ray(Float time, Float sample1, const Point2f &sample2,
+    sample_ray_3(Float time, Float sample1, const Point2f &sample2,
                const PositionSample3f &ps, Mask active = true) const;
 
 
@@ -242,7 +242,7 @@ public:
      *    and the actual used sampling density function.
      */
     virtual std::pair<Ray3f, Spectrum>
-        sample_ray_dir(Float time, const Wavelength &wavelengths,
+    sample_ray_13(Float time, const Wavelength &wavelengths,
                    const Point2f &sample2, const PositionSample3f &ps,
                    Mask active = true) const;
     /**
@@ -252,26 +252,15 @@ public:
      * \param ray
      *    Ray originating from this endpoint
      *
+     * \param ps
+     *    Position sample of ray origin to provide uv and normal
+     *
      * \return
      *    Positional and directional PDFs of the ray
      */
     virtual std::pair<Float, Float>
-    pdf_ray(const Ray3f &ray, Mask active = true) const;
+    pdf_ray(const Ray3f &ray, const PositionSample3f &ps, Mask active = true) const;
 
-    /**
-     * \brief Evaluate PDF of ray direction
-     *
-     * \param ray
-     *    Sampled ray
-     *
-     * \param ps
-     *    Sampled position
-     *
-     * \return
-     *    PDF of ray direction
-     */
-    virtual Float
-    pdf_ray_dir(const Ray3f &ray, const PositionSample3f &ps, Mask active = true) const;
 
     /**
      * \brief Jointly evaluate PDF and importance sample a ray proportional to the endpoint's

@@ -1,3 +1,6 @@
+#include <tuple>
+#include <drjit/struct.h>
+#include <drjit/dynamic.h>
 #include <mitsuba/core/ray.h>
 #include <mitsuba/core/properties.h>
 #include <mitsuba/render/bsdf.h>
@@ -10,14 +13,12 @@ NAMESPACE_BEGIN(mitsuba)
 
 template <typename Float, typename Spectrum>
 class BDPTIntegrator : public MonteCarloIntegrator<Float, Spectrum> {
-
 public:
     MI_IMPORT_BASE(MonteCarloIntegrator, m_hide_emitters, m_max_depth, m_rr_depth)
     MI_IMPORT_TYPES(Scene, Film, Sampler, ImageBlock, Emitter, EmitterPtr,
                     Sensor, SensorPtr, BSDF, BSDFPtr)
 
-    BDPTIntegrator(const Properties &props) : Base(props) {
-    }
+    BDPTIntegrator(const Properties &props) : Base(props) { }
 
     void render_sample(const Scene *scene,
                        const Sensor *sensor,
@@ -102,6 +103,7 @@ public:
         block->put(box_filter ? pos : sample_pos, aovs, active);
     }
 
+    // TODO: Take care of scalar mode
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      const Sensor *sensor,
                                      Sampler *sampler,
@@ -109,13 +111,12 @@ public:
                                      Spectrum wav_weight,
                                      ImageBlock *block,
                                      ScalarFloat sample_scale) const {
-        uint32_t width = dr::width(ray);
+//        MI_MASKED_FUNCTION(ProfilerPhase::SamplingIntegratorSample, active);
+        constexpr bool JIT = dr::is_jit_v<Float>;
 
-        Vertex3f verts_camera = dr::empty<Vertex3f>(width * (m_max_depth + 1));
-        UInt32 n_camera_verts = generate_camera_subpath(scene, sensor, sampler, ray, verts_camera);
+        auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray);
 
-        Vertex3f verts_light = dr::empty<Vertex3f>(width * m_max_depth);
-        UInt32 n_light_verts = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths, verts_light);
+        auto [n_light_verts, verts_light] = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths);
 
 #ifndef USE_MIS
         // When not using MIS, we fix all the vertices of a path
@@ -125,7 +126,7 @@ public:
         sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
                                 ray.time, ray.wavelengths, wav_weight);
         UInt32 depth = 1;
-        UInt32 idx = dr::arange<UInt32>(width) * m_max_depth;
+        UInt32 idx = dr::arange<UInt32>(dr::width(ray)) * m_max_depth;
         Mask active = depth < n_light_verts;
         dr::Loop<Bool> loop("Connect Sensor",
                             depth, idx, active);
@@ -148,7 +149,7 @@ public:
         }
 
         return { 0.f, false };
-#elifndef CONNECT
+#elif !defined(CONNECT)
         // When not connecting subpaths, we fix all the vertices of a path
         // to be camera vertices except for the last vertex.
         // For the last vertex, we use MIS to combine BSDF sampling
@@ -252,17 +253,11 @@ public:
      * \param bsdf_ctx
      *    Indicates whether subpath starts from sensor or emitter
      *
-     * \param vertices
-     *    Where to store vertices
-     *
      * \param prev_vert
      *    Vertex to start from
      *
      * \param throughput
      *    Throughput of next vertex
-     *
-     * \param offset
-     *    Index of `prev_vert` into `vertices`
      *
      * \param max_depth
      *    Maximum number of remaining vertices along subpath
@@ -271,26 +266,28 @@ public:
      *    Directional PDF of next vertex
      *
      * \return
-     *    Number of vertices along subpath
+     *    Number of vertices along subpath starting from `prev_vert`
+     *    and those vertices
      */
     // TODO: Delta vertices ignored for now
-    UInt32 random_walk(BSDFContext bsdf_ctx,
+    std::pair<UInt32, Vertex3f> random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
                        const Ray3f &ray_,
-                       Vertex3f &vertices,
                        Vertex3f prev_vert,
                        Spectrum throughput,
-                       UInt32 offset,
                        uint32_t max_depth,
                        Float pdf_fwd,
                        Mask active = true) const {
         if (unlikely(max_depth == 0))
-            return 0;
+            return { 1, prev_vert };
 
+        uint32_t width = dr::width(ray_);
+        auto vertices = dr::empty<Vertex3f>(width * (max_depth + 1));
+        UInt32 offset = dr::arange<UInt32>(width) * (max_depth + 1);
         Ray3f ray = Ray3f(ray_);
         Mask active_ = active;
-        UInt32 n_verts = 0;
+        UInt32 n_verts = 1;
         dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, throughput, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
@@ -359,31 +356,28 @@ public:
 
         Assert(!dr::any(n_verts > max_depth));
 
-        return n_verts;
+        return { n_verts, vertices };
     }
 
-    UInt32 generate_camera_subpath(const Scene *scene,
+    auto generate_camera_subpath(
+                                   const Scene *scene,
                                    const Sensor *sensor,
                                    Sampler *sampler,
-                                   const RayDifferential3f &ray,
-                                   Vertex3f &vertices) const {
-        auto [pdf_pos, pdf_dir] = sensor->pdf_ray(ray);
+                                   const RayDifferential3f &ray) const {
+        auto [pdf_pos, pdf_dir] = sensor->pdf_ray(ray, dr::zeros<PositionSample3f>());
         Vertex3f vert(ray, pdf_pos);
         UInt32 offset = dr::arange<UInt32>(dr::width(ray)) * (m_max_depth + 1);
 
         return random_walk(BSDFContext(), scene, sampler,
-                           ray, vertices, vert, 1.f,
-                           offset, m_max_depth, pdf_dir) + 1;
+                           ray, vert, 1.f, m_max_depth, pdf_dir);
     }
 
     // TODO: Delta lights ignored for now
-    // TODO: Implement sample_*() for envmap
-    // TODO: Implement pdf_ray() for area lights
-    UInt32 generate_light_subpath(const Scene *scene,
+    auto generate_light_subpath(
+                                  const Scene *scene,
                                   Sampler *sampler,
                                   Float time,
-                                  const Wavelength &wavelengths,
-                                  Vertex3f &vertices) const {
+                                  const Wavelength &wavelengths) const {
         // Sample an emitter
         auto [emitter_idx, emitter_idx_weight, _] =
             scene->sample_emitter(sampler->next_1d());
@@ -406,12 +400,11 @@ public:
         Vertex3f vert(ray, ps, emitter, pdf_fwd, throughput);
 
         throughput = emitter_idx_weight * ray_weight;
-        UInt32 idx = dr::arange<UInt32>(dr::width(time)) * m_max_depth;
         pdf_fwd = dr::select(is_inf, pdf_pos, pdf_dir);
-        UInt32 n_verts = random_walk(BSDFContext(TransportMode::Importance),
-                                     scene, sampler, ray, vertices, vert,
-                                     throughput, idx, m_max_depth - 1, pdf_fwd) + 1;
-        return n_verts;
+
+        return random_walk(BSDFContext(TransportMode::Importance),
+                                     scene, sampler, ray, vert,
+                                     throughput, m_max_depth - 1, pdf_fwd);
     }
 
 #ifdef CONNECT
@@ -594,6 +587,13 @@ public:
         connect_sensor(scene, si, sensor_ds, nullptr, weight, block, sample_scale);
     }
 #endif
+
+    std::string to_string() const override {
+        return tfm::format("BDPTIntegrator[\n"
+            "  max_depth = %u,\n"
+            "  rr_depth = %u\n"
+            "]", m_max_depth, m_rr_depth);
+    }
 
     MI_DECLARE_CLASS()
 };
