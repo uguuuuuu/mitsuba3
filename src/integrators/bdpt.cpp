@@ -114,7 +114,7 @@ public:
 //        MI_MASKED_FUNCTION(ProfilerPhase::SamplingIntegratorSample, active);
         constexpr bool JIT = dr::is_jit_v<Float>;
 
-        auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray);
+//        auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray);
 
         auto [n_light_verts, verts_light] = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths);
 
@@ -128,20 +128,24 @@ public:
         UInt32 depth = 1;
         UInt32 idx = dr::arange<UInt32>(dr::width(ray)) * m_max_depth;
         Mask active = depth < n_light_verts;
-        dr::Loop<Bool> loop("Connect Sensor",
-                            depth, idx, active);
-        while (loop(active)) {
+//        dr::Loop<Bool> loop("Connect Sensor",
+//                            depth, idx, active);
+//        while (loop(active)) {
+        for (int i = 1; i < m_max_depth; i++) {
             idx++;
 
-            Vertex3f vert = dr::gather<Vertex3f>(verts_light, idx);
+            Vertex3f vert;
+            if constexpr (JIT) {
+                vert = dr::gather<Vertex3f>(verts_light, idx, active);
+            }
             SurfaceInteraction3f si(vert);
             Point2f aperture_sample;
             if (sensor->needs_aperture_sample())
-                aperture_sample = sampler->next_2d();
+                aperture_sample = sampler->next_2d(active);
             auto [sensor_ds, sensor_weight] =
-                sensor->sample_direction(si, aperture_sample);
+                sensor->sample_direction(si, aperture_sample, active);
             Spectrum weight = vert.throughput * sensor_weight * wav_weight;
-            connect_sensor(scene, si, sensor_ds, vert.bsdf, weight, block, sample_scale);
+            connect_sensor(scene, si, sensor_ds, vert.bsdf, weight, block, sample_scale, active);
 
             // Check for termination
             depth++;
@@ -270,7 +274,8 @@ public:
      *    and those vertices
      */
     // TODO: Delta vertices ignored for now
-    std::pair<UInt32, Vertex3f> random_walk(BSDFContext bsdf_ctx,
+    std::pair<UInt32, Vertex3f> random_walk(
+                       BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
                        const Ray3f &ray_,
@@ -281,6 +286,8 @@ public:
                        Mask active = true) const {
         if (unlikely(max_depth == 0))
             return { 1, prev_vert };
+
+        constexpr bool JIT = dr::is_jit_v<Float>;
 
         uint32_t width = dr::width(ray_);
         auto vertices = dr::empty<Vertex3f>(width * (max_depth + 1));
@@ -329,7 +336,9 @@ public:
 
             // Scatter previous vertex into `vertices`
             UInt32 idx = offset + n_verts;
-            dr::scatter(vertices, prev_vert, idx, active);
+
+            if constexpr (JIT)
+                dr::scatter(vertices, prev_vert, idx, active);
 
             // Update loop variables
             ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
@@ -352,7 +361,9 @@ public:
             n_verts -= dr::select(active_ & is_inf, 1, 0);
             active_ &= !is_inf;
         }
-        dr::scatter(vertices, prev_vert, idx, active_);
+
+        if constexpr (JIT)
+            dr::scatter(vertices, prev_vert, idx, active_);
 
         Assert(!dr::any(n_verts > max_depth));
 

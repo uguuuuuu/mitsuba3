@@ -80,8 +80,9 @@ struct Vertex {
            Float pdf,
            Spectrum throughput)
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
-          time(si.time), wavelengths(si.wavelengths), J(si.J),
-          d(si.wi), dist(si.t), bsdf(si.bsdf()), throughput(throughput) {
+          time(si.time), wavelengths(si.wavelengths), pdf_fwd(0.f),
+          pdf_rev(0.f), J(si.J), d(si.wi), dist(si.t), emitter(nullptr),
+          bsdf(si.bsdf()), throughput(throughput) {
 
         Mask is_inf = has_flag(prev.emitter->flags(), EmitterFlags::Infinite);
         // If previous vertex is infinite light, `pdf` is area probability density.
@@ -98,8 +99,10 @@ struct Vertex {
     /// Create a vertex from a sensor ray
     Vertex(const Ray3f &ray,
            Float pdf)
-        : p(ray.o), time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
-          J(1.f), throughput(1.f) {}
+        : p(ray.o), n(0.f), sh_frame(n), uv(0.f),
+          time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
+          pdf_rev(0.f), J(1.f), d(0.f), dist(0.f),
+          emitter(nullptr), bsdf(nullptr), throughput(1.f) {}
 
     /// Create a vertex from an emitter ray
     Vertex(const Ray3f &ray,
@@ -109,7 +112,8 @@ struct Vertex {
            Spectrum throughput)
         : p(ray.o), n(ps.n), sh_frame(ps.n), uv(ps.uv),
           time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
-          J(ps.J), emitter(emitter), throughput(throughput) {}
+          pdf_rev(0.f), J(ps.J), d(0.f), dist(0.f),
+          emitter(emitter), bsdf(nullptr), throughput(throughput) {}
 
     void zero_(size_t size = 1) {
         dist = dr::full<Float>(dr::Infinity<Float>, size);

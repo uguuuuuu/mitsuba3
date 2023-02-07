@@ -239,7 +239,8 @@ public:
                                     const PositionSample3f &,
                                     Mask active) const override {
         Vector3f local_d = m_to_world.value().inverse() * ray.d;
-        return {1.f, importance(local_d)};
+        return { dr::select(active, 1.f, 0.f),
+                 dr::select(active, importance(local_d), 0.f) };
     }
 
     std::pair<RayDifferential3f, Spectrum>
