@@ -1,3 +1,16 @@
+# Note
+To compile this branch, please replace
+```
+mask_t<plain_t<replace_scalar_t<Index, scalar_t<Target>>>> mask = mask_;
+```
+with
+```
+mask_t<plain_t<Index>> mask = mask_;
+```
+at line 977 of ext/drjit/include/drjit/array_router.h.
+
+Otherwise you can't use gather() for drjit structs.
+
 <!-- <img src="https://github.com/mitsuba-renderer/mitsuba3/raw/master/docs/images/logo_plain.png" width="120" height="120" alt="Mitsuba logo"> -->
 
 <img src="https://raw.githubusercontent.com/mitsuba-renderer/mitsuba-data/master/docs/images/banners/banner_01.jpg"

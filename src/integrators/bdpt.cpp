@@ -16,7 +16,7 @@ class BDPTIntegrator : public MonteCarloIntegrator<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(MonteCarloIntegrator, m_hide_emitters, m_max_depth, m_rr_depth)
     MI_IMPORT_TYPES(Scene, Film, Sampler, ImageBlock, Emitter, EmitterPtr,
-                    Sensor, SensorPtr, BSDF, BSDFPtr)
+                    Sensor, SensorPtr, BSDF, BSDFPtr, Medium)
 
     BDPTIntegrator(const Properties &props) : Base(props) { }
 
@@ -72,7 +72,7 @@ public:
         block->set_coalesce(false);
 
         auto [spec, valid] = sample(
-            scene, sensor, sampler, ray, wav_weight, block, sample_scale
+            scene, sensor, sampler, ray, wav_weight, block, sample_scale, active
             );
         spec *= sample_scale;
         block->set_coalesce(coalesce);
@@ -103,6 +103,15 @@ public:
         block->put(box_filter ? pos : sample_pos, aovs, active);
     }
 
+    std::pair<Spectrum, Mask> sample(const Scene * /* scene */,
+                                     Sampler * /* sampler */,
+                                     const RayDifferential3f & /* ray */,
+                                     const Medium * /* medium */,
+                                     Float * /* aovs */,
+                                     Mask /* active */) const override {
+        NotImplementedError("sample");
+    }
+
     // TODO: Take care of scalar mode
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      const Sensor *sensor,
@@ -110,13 +119,24 @@ public:
                                      const RayDifferential3f &ray,
                                      Spectrum wav_weight,
                                      ImageBlock *block,
-                                     ScalarFloat sample_scale) const {
-//        MI_MASKED_FUNCTION(ProfilerPhase::SamplingIntegratorSample, active);
+                                     ScalarFloat sample_scale,
+                                     Mask active = true) const {
+        MI_MASKED_FUNCTION(ProfilerPhase::SamplingIntegratorSample, active);
+
         constexpr bool JIT = dr::is_jit_v<Float>;
 
-//        auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray);
-
-        auto [n_light_verts, verts_light] = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths);
+        uint32_t width = dr::width(ray);
+#ifdef USE_MIS
+        auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray, active);
+#endif
+        auto [n_light_verts, verts_light] = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths, active);
+        // Discard unused vertex slots
+//        if constexpr (JIT) {
+//            UInt32 idx  = dr::tile(dr::arange(m_max_depth), width);
+//            verts_light = dr::gather<Vertex3f>(
+//                verts_light, dr::compress(idx < n_light_verts));
+//        }
+        dr::eval(verts_light);
 
 #ifndef USE_MIS
         // When not using MIS, we fix all the vertices of a path
@@ -126,26 +146,24 @@ public:
         sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
                                 ray.time, ray.wavelengths, wav_weight);
         UInt32 depth = 1;
-        UInt32 idx = dr::arange<UInt32>(dr::width(ray)) * m_max_depth;
-        Mask active = depth < n_light_verts;
-//        dr::Loop<Bool> loop("Connect Sensor",
-//                            depth, idx, active);
-//        while (loop(active)) {
-        for (int i = 1; i < m_max_depth; i++) {
-            idx++;
-
-            Vertex3f vert;
+        UInt32 offset = dr::arange<UInt32>(width) * m_max_depth;
+        active &= depth < n_light_verts;
+        dr::Loop<Bool> loop("Connect Sensor",
+                            depth, active);
+        while (loop(active)) {
+            UInt32 idx = offset + depth;
+            Vertex3f vert = dr::zeros<Vertex3f>();
             if constexpr (JIT) {
-                vert = dr::gather<Vertex3f>(verts_light, idx, active);
+                vert = dr::gather<Vertex3f>(verts_light, idx);
             }
             SurfaceInteraction3f si(vert);
             Point2f aperture_sample;
             if (sensor->needs_aperture_sample())
-                aperture_sample = sampler->next_2d(active);
+                aperture_sample = sampler->next_2d();
             auto [sensor_ds, sensor_weight] =
-                sensor->sample_direction(si, aperture_sample, active);
+                sensor->sample_direction(si, aperture_sample);
             Spectrum weight = vert.throughput * sensor_weight * wav_weight;
-            connect_sensor(scene, si, sensor_ds, vert.bsdf, weight, block, sample_scale, active);
+            connect_sensor(scene, si, sensor_ds, vert.bsdf, weight, block, sample_scale);
 
             // Check for termination
             depth++;
@@ -294,7 +312,7 @@ public:
         UInt32 offset = dr::arange<UInt32>(width) * (max_depth + 1);
         Ray3f ray = Ray3f(ray_);
         Mask active_ = active;
-        UInt32 n_verts = 1;
+        UInt32 n_verts = 0;
         dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, throughput, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
@@ -303,7 +321,9 @@ public:
             SurfaceInteraction3f si =
                 scene->ray_intersect(ray);
             Vertex3f curr_vert(prev_vert, si, pdf_fwd, throughput);
-            if (bsdf_ctx.mode == TransportMode::Importance)
+            // We allow camera subpaths to be complete paths
+            // so store emitters to query radiance later
+            if (bsdf_ctx.mode == TransportMode::Radiance)
                 curr_vert.emitter = si.emitter(scene);
             BSDFPtr bsdf = si.bsdf(ray);
             auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
@@ -336,7 +356,6 @@ public:
 
             // Scatter previous vertex into `vertices`
             UInt32 idx = offset + n_verts;
-
             if constexpr (JIT)
                 dr::scatter(vertices, prev_vert, idx, active);
 
@@ -367,9 +386,10 @@ public:
 
         Assert(!dr::any(n_verts > max_depth));
 
-        return { n_verts, vertices };
+        return { n_verts + 1, vertices };
     }
 
+#ifdef USE_MIS
     auto generate_camera_subpath(
                                    const Scene *scene,
                                    const Sensor *sensor,
@@ -382,32 +402,47 @@ public:
         return random_walk(BSDFContext(), scene, sampler,
                            ray, vert, 1.f, m_max_depth, pdf_dir);
     }
+#endif
 
     // TODO: Delta lights ignored for now
-    auto generate_light_subpath(
-                                  const Scene *scene,
-                                  Sampler *sampler,
-                                  Float time,
-                                  const Wavelength &wavelengths) const {
+    auto generate_light_subpath(const Scene *scene,
+                                Sampler *sampler,
+                                Float time,
+                                const Wavelength &wavelengths,
+                                Mask active = true) const {
         // Sample an emitter
-        auto [emitter_idx, emitter_idx_weight, _] =
-            scene->sample_emitter(sampler->next_1d());
-        EmitterPtr emitter =
-            dr::gather<EmitterPtr>(scene->emitters_dr(), emitter_idx);
+        Spectrum emitter_idx_weight = 1.f;
+        Float pdf_emitter = 1.f;
+        EmitterPtr emitter;
+
+        bool vcall_inline = true;
+        if constexpr (dr::is_jit_v<Float>)
+            vcall_inline = jit_flag(JitFlag::VCallInline);
+
+        size_t emitter_count = scene->emitters().size();
+        if (emitter_count > 1 || (emitter_count == 1 && !vcall_inline)) {
+            auto [emitter_idx, weight, _] =
+                scene->sample_emitter(sampler->next_1d(active), active);
+            emitter_idx_weight = weight;
+            pdf_emitter = scene->pdf_emitter(emitter_idx, active);
+            emitter = dr::gather<EmitterPtr>(scene->emitters_dr(),
+                                                        emitter_idx, active);
+        }
+        else {
+            emitter = dr::gather<EmitterPtr>(scene->emitters_dr(),
+                                             UInt32(0u), active);
+        }
         Mask is_inf = has_flag(emitter->flags(), EmitterFlags::Infinite);
 
         // Sample ray from emitter
         // Note ray_weight includes radiance
         auto [ps, pdf_dir, ray, ray_weight] =
-            emitter->pdf_sample_ray(time, wavelengths, sampler->next_2d(), sampler->next_2d());
+            emitter->pdf_sample_ray(time, wavelengths, sampler->next_2d(active), sampler->next_2d(active), active);
         Float pdf_pos = ps.pdf;
 
-        Spectrum throughput = emitter_idx_weight /
-                              dr::select(is_inf,
-                                         pdf_dir,
-                                         pdf_pos);
-        Float pdf_emitter = scene->pdf_emitter(emitter_idx);
-        Float pdf_fwd = dr::select(is_inf, pdf_dir, pdf_pos) * pdf_emitter;
+        Float pdf = dr::select(is_inf, pdf_dir, pdf_pos);
+        Spectrum throughput = emitter_idx_weight * dr::select(pdf > 0.f, dr::rcp(pdf), 0.f);
+        Float pdf_fwd = pdf * pdf_emitter;
         Vertex3f vert(ray, ps, emitter, pdf_fwd, throughput);
 
         throughput = emitter_idx_weight * ray_weight;
@@ -415,7 +450,7 @@ public:
 
         return random_walk(BSDFContext(TransportMode::Importance),
                                      scene, sampler, ray, vert,
-                                     throughput, m_max_depth - 1, pdf_fwd);
+                                     throughput, m_max_depth - 1, pdf_fwd, active);
     }
 
 #ifdef CONNECT
@@ -500,6 +535,9 @@ public:
         Spectrum result = 0.f;
         Spectrum surface_weight = 1.f;
         Vector3f local_d = si.to_local(sensor_ray.d);
+        // FIXME: Surface interactions constructed from vertices
+        // don't have shapes associated with them, preventing BSDFs from being multiplied.
+        // Modify this function or SurfaceInteraction and Vertex.
         Mask on_surface = active && dr::neq(si.shape, nullptr);
         if (dr::any_or<true>(on_surface)) {
             surface_weight[on_surface && dr::eq(bsdf, nullptr)] *=

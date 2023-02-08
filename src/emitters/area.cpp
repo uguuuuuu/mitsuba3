@@ -191,7 +191,9 @@ public:
 
         // 2. Sample directional component
         Vector3f local = warp::square_to_cosine_hemisphere(sample3);
-        Float pdf_dir = warp::square_to_cosine_hemisphere_pdf(local);
+        Float pdf_dir = dr::select(active,
+                                    warp::square_to_cosine_hemisphere_pdf(local),
+                                    0.f);
 
         SurfaceInteraction3f si(ps, wavelengths);
         si.time = time;
