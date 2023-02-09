@@ -78,6 +78,7 @@ public:
         block->set_coalesce(coalesce);
 
         UnpolarizedSpectrum spec_u = unpolarized_spectrum(spec * ray_weight);
+        active &= dr::any(dr::neq(spec_u, 0.f));
 
         Color3f rgb;
         if constexpr (is_spectral_v<Spectrum>)
@@ -112,6 +113,8 @@ public:
         NotImplementedError("sample");
     }
 
+    // FIXME: Image starts to deviate from that rendered by ptracer
+    //  when max depth is greater than 3
     // TODO: Take care of scalar mode
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      const Sensor *sensor,
@@ -130,12 +133,13 @@ public:
         auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray, active);
 #endif
         auto [n_light_verts, verts_light] = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths, active);
-        // Discard unused vertex slots
+        // TODO: Discard unused vertex slots
 //        if constexpr (JIT) {
 //            UInt32 idx  = dr::tile(dr::arange(m_max_depth), width);
 //            verts_light = dr::gather<Vertex3f>(
 //                verts_light, dr::compress(idx < n_light_verts));
 //        }
+        // In order to gather() in the following recorded loop
         dr::eval(verts_light);
 
 #ifndef USE_MIS
@@ -145,13 +149,12 @@ public:
         // in this case.
         sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
                                 ray.time, ray.wavelengths, wav_weight);
-        UInt32 depth = 1;
-        UInt32 offset = dr::arange<UInt32>(width) * m_max_depth;
-        active &= depth < n_light_verts;
-        dr::Loop<Bool> loop("Connect Sensor",
-                            depth, active);
+        UInt32 i      = 0;
+        UInt32 offset = dr::arange<UInt32>(width) * (m_max_depth - 1);
+        active &= i < n_light_verts;
+        dr::Loop<Bool> loop("Connect Sensor", i, active);
         while (loop(active)) {
-            UInt32 idx = offset + depth;
+            UInt32 idx = offset + i;
             Vertex3f vert = dr::zeros<Vertex3f>();
             if constexpr (JIT) {
                 vert = dr::gather<Vertex3f>(verts_light, idx);
@@ -163,11 +166,11 @@ public:
             auto [sensor_ds, sensor_weight] =
                 sensor->sample_direction(si, aperture_sample);
             Spectrum weight = vert.throughput * sensor_weight * wav_weight;
-            connect_sensor(scene, si, sensor_ds, vert.bsdf, weight, block, sample_scale);
+            connect_sensor(scene, si, sensor_ds, vert.bsdf(), weight, block, sample_scale);
 
             // Check for termination
-            depth++;
-            active &= depth < n_light_verts;
+            i++;
+            active &= i < n_light_verts;
         }
 
         return { 0.f, false };
@@ -292,27 +295,31 @@ public:
      *    and those vertices
      */
     // TODO: Delta vertices ignored for now
+    // TODO: Can we apply Russian Roulette?
     std::pair<UInt32, Vertex3f> random_walk(
                        BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
-                       const Ray3f &ray_,
-                       Vertex3f prev_vert,
-                       Spectrum throughput,
                        uint32_t max_depth,
+                       const Ray3f &ray_,
+                       const Vertex3f &prev_vert_,
+                       const Spectrum &throughput_,
                        Float pdf_fwd,
-                       Mask active = true) const {
+                       Mask active_ = true) const {
         if (unlikely(max_depth == 0))
-            return { 1, prev_vert };
+            return { 0, dr::zeros<Vertex3f>() };
 
         constexpr bool JIT = dr::is_jit_v<Float>;
 
         uint32_t width = dr::width(ray_);
-        auto vertices = dr::empty<Vertex3f>(width * (max_depth + 1));
-        UInt32 offset = dr::arange<UInt32>(width) * (max_depth + 1);
+        auto vertices = dr::empty<Vertex3f>(width * max_depth);
+        UInt32 offset = dr::arange<UInt32>(width) * max_depth;
         Ray3f ray = Ray3f(ray_);
-        Mask active_ = active;
         UInt32 n_verts = 0;
+        Vertex3f prev_vert = prev_vert_;
+        Spectrum throughput = throughput_;
+        Mask active = active_;
+
         dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, throughput, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
@@ -327,7 +334,26 @@ public:
                 curr_vert.emitter = si.emitter(scene);
             BSDFPtr bsdf = si.bsdf(ray);
             auto [bsdf_sample, bsdf_weight] = bsdf->sample(bsdf_ctx, si, sampler->next_1d(), sampler->next_2d());
-            bsdf_weight = si.to_world_mueller(bsdf_weight, -bsdf_sample.wo, si.wi);
+            if (bsdf_ctx.mode == TransportMode::Radiance) {
+                bsdf_weight = si.to_world_mueller(bsdf_weight, -bsdf_sample.wo, si.wi);
+            }
+            else {
+                bsdf_weight = si.to_world_mueller(bsdf_weight, -si.wi, bsdf_sample.wo);
+                // Using geometric normals (wo points to the camera)
+                Float wi_dot_geo_n = dr::dot(si.n, -ray.d),
+                      wo_dot_geo_n = dr::dot(si.n, si.to_world(bsdf_sample.wo));
+
+                // Prevent light leaks due to shading normals
+                Mask valid = (wi_dot_geo_n * Frame3f::cos_theta(si.wi) > 0.f) &&
+                          (wo_dot_geo_n * Frame3f::cos_theta(bsdf_sample.wo) > 0.f);
+
+                // Adjoint BSDF for shading normals -- [Veach, p. 155]
+                Float correction = dr::select(valid & active,
+                                              dr::abs((Frame3f::cos_theta(si.wi) * wo_dot_geo_n) /
+                                           (Frame3f::cos_theta(bsdf_sample.wo) * wi_dot_geo_n)),
+                                              0.f);
+                bsdf_weight *= correction;
+            }
 
             // Compute previous vertex's pdf_rev
             bsdf_ctx.reverse();
@@ -355,38 +381,46 @@ public:
             }
 
             // Scatter previous vertex into `vertices`
-            UInt32 idx = offset + n_verts;
+            UInt32 idx = offset + n_verts - 1;
             if constexpr (JIT)
-                dr::scatter(vertices, prev_vert, idx, active);
+                // We don't need the first vertex
+                dr::scatter(vertices, prev_vert, idx, active & (n_verts > 0));
 
             // Update loop variables
             ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
             n_verts++;
-            prev_vert = curr_vert;
+            // Ensure `prev_vert` stores the correct vertex
+            prev_vert = dr::select(active, curr_vert, prev_vert);
             throughput *= bsdf_weight;
             pdf_fwd = bsdf_sample.pdf;
 
             // Check for termination
+            active &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
             active &= si.is_valid();
             active &= n_verts < max_depth;
         }
 
         // Scatter last vertex
-        UInt32 idx = offset + n_verts;
-        // We allow environment maps to be the last vertex
-        // of camera subpaths but not of light subpaths
-        if (bsdf_ctx.mode == TransportMode::Importance) {
-            Mask is_inf = dr::eq(prev_vert.dist, dr::Infinity<Float>);
+        UInt32 idx = offset + n_verts - 1;
+        Mask is_inf = dr::eq(prev_vert.dist, dr::Infinity<Float>);
+        if (scene->environment()) {
+            // We allow environment maps to be the last vertex
+            // of camera subpaths but not of light subpaths
+            if (bsdf_ctx.mode == TransportMode::Importance) {
+                n_verts -= dr::select(active_ & is_inf, 1, 0);
+                active_ &= !is_inf;
+            }
+        }
+        else {
             n_verts -= dr::select(active_ & is_inf, 1, 0);
             active_ &= !is_inf;
         }
-
         if constexpr (JIT)
             dr::scatter(vertices, prev_vert, idx, active_);
 
         Assert(!dr::any(n_verts > max_depth));
 
-        return { n_verts + 1, vertices };
+        return { n_verts, vertices };
     }
 
 #ifdef USE_MIS
@@ -410,15 +444,16 @@ public:
                                 Float time,
                                 const Wavelength &wavelengths,
                                 Mask active = true) const {
-        // Sample an emitter
         Spectrum emitter_idx_weight = 1.f;
         Float pdf_emitter = 1.f;
         EmitterPtr emitter;
 
         bool vcall_inline = true;
-        if constexpr (dr::is_jit_v<Float>)
+        if constexpr (dr::is_jit_v<Float>) {
             vcall_inline = jit_flag(JitFlag::VCallInline);
+        }
 
+        // Sample an emitter
         size_t emitter_count = scene->emitters().size();
         if (emitter_count > 1 || (emitter_count == 1 && !vcall_inline)) {
             auto [emitter_idx, weight, _] =
@@ -449,8 +484,8 @@ public:
         pdf_fwd = dr::select(is_inf, pdf_pos, pdf_dir);
 
         return random_walk(BSDFContext(TransportMode::Importance),
-                                     scene, sampler, ray, vert,
-                                     throughput, m_max_depth - 1, pdf_fwd, active);
+                                     scene, sampler, m_max_depth - 1, ray, vert,
+                                     throughput, pdf_fwd, active);
     }
 
 #ifdef CONNECT
@@ -535,9 +570,6 @@ public:
         Spectrum result = 0.f;
         Spectrum surface_weight = 1.f;
         Vector3f local_d = si.to_local(sensor_ray.d);
-        // FIXME: Surface interactions constructed from vertices
-        // don't have shapes associated with them, preventing BSDFs from being multiplied.
-        // Modify this function or SurfaceInteraction and Vertex.
         Mask on_surface = active && dr::neq(si.shape, nullptr);
         if (dr::any_or<true>(on_surface)) {
             surface_weight[on_surface && dr::eq(bsdf, nullptr)] *=
