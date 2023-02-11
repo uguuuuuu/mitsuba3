@@ -161,7 +161,7 @@ public:
 //                verts_light, dr::compress(idx < n_light_verts));
 //        }
         // In order to gather() in the following recorded loop
-        dr::eval(n_light_verts, verts_light);
+        dr::eval(verts_light);
 #endif
 
 #ifndef USE_MIS
@@ -390,7 +390,7 @@ public:
                        const Ray3f &ray_,
                        const Vertex3f &prev_vert_,
                        const Spectrum &throughput_,
-                       Float pdf_fwd,
+                       Float pdf_fwd_,
                        Mask active_ = true) const {
         if (unlikely(max_depth == 0))
             return { 0, dr::zeros<Vertex3f>() };
@@ -404,6 +404,7 @@ public:
         UInt32 n_verts = 0;
         Vertex3f prev_vert = prev_vert_;
         Spectrum throughput = throughput_;
+        Float pdf_fwd = pdf_fwd_;
         Mask active = active_;
         active &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
         active &= !dr::eq(prev_vert.dist, dr::Infinity<Float>);
@@ -454,7 +455,7 @@ public:
             active &= active_next_;
         }
 
-        dr::Loop<Bool> loop("Random Walk", ray, n_verts, prev_vert, throughput, pdf_fwd, active);
+        dr::Loop<Bool> loop("Random Walk", sampler, ray, n_verts, prev_vert, throughput, pdf_fwd, active);
         loop.set_max_iterations(max_depth);
 
         while (loop(active)) {
@@ -532,9 +533,9 @@ public:
             // Update loop variables
             ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
             n_verts++;
-            throughput *= bsdf_weight;
             // Ensure `prev_vert` stores the last vertex
             prev_vert = dr::select(active_next, curr_vert, prev_vert);
+            throughput *= bsdf_weight;
             pdf_fwd = bsdf_sample.pdf;
             active &= active_next;
         }
