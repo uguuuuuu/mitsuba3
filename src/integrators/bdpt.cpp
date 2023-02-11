@@ -20,6 +20,8 @@ public:
     MI_IMPORT_TYPES(Scene, Film, Sampler, ImageBlock, Emitter, EmitterPtr,
                     Sensor, SensorPtr, BSDF, BSDFPtr, Medium)
 
+    using Vertex3fArray = std::unique_ptr<Vertex3f[]>;
+
     BDPTIntegrator(const Properties &props) : Base(props) { }
 
     void render_sample(const Scene *scene,
@@ -133,8 +135,6 @@ public:
         NotImplementedError("sample");
     }
 
-    // FIXME: Image starts to deviate from that rendered by ptracer
-    //  when max depth is greater than 3
     // TODO: Take care of scalar mode
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      const Sensor *sensor,
@@ -146,22 +146,32 @@ public:
                                      Mask active = true) const {
         MI_MASKED_FUNCTION(ProfilerPhase::SamplingIntegratorSample, active);
 
-        constexpr bool JIT = dr::is_jit_v<Float>;
+//        constexpr bool JIT = dr::is_jit_v<Float>;
 
-        uint32_t width = dr::width(ray);
+//        uint32_t width = dr::width(ray);
 #ifdef USE_MIS
         auto [n_camera_verts, verts_camera] = generate_camera_subpath(scene, sensor, sampler, ray, active);
         dr::eval(verts_camera);
 #else
-        auto [n_light_verts, verts_light] = generate_light_subpath(scene, sampler, ray.time, ray.wavelengths, active);
-        // TODO: Discard unused vertex slots
+        Vertex3fArray verts_light(new Vertex3f[m_max_depth - 1]);
+        UInt32 n_light_verts = generate_light_subpath(scene, sampler, verts_light.get(), ray.time, ray.wavelengths, active);
+//        UInt32 offset = dr::zeros<UInt32>();
+//
+//        // TODO: Discard unused vertex slots
 //        if constexpr (JIT) {
-//            UInt32 idx  = dr::tile(dr::arange(m_max_depth), width);
-//            verts_light = dr::gather<Vertex3f>(
-//                verts_light, dr::compress(idx < n_light_verts));
+//            UInt32 idx  = dr::compress(
+//                            dr::tile(dr::arange<UInt32>(m_max_depth - 1), width) <
+//                            dr::repeat(n_light_verts, (m_max_depth - 1)));
+//            verts_light = dr::gather<Vertex3f>(verts_light, idx);
+//        }
+//        if constexpr (JIT) {
+//            UInt32 idx = dr::arange<UInt32>(width);
+//            Mask active_ = idx > 0;
+//            idx -= 1;
+//            offset = dr::gather<UInt32>(n_light_verts, idx, active_);
 //        }
         // In order to gather() in the following recorded loop
-        dr::eval(verts_light);
+//        dr::eval(verts_light);
 #endif
 
 #ifndef USE_MIS
@@ -172,27 +182,29 @@ public:
         sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
                                 ray.time, ray.wavelengths, wav_weight);
         UInt32 i      = 0;
-        UInt32 offset = dr::arange<UInt32>(width) * (m_max_depth - 1);
+//        UInt32 offset = dr::arange<UInt32>(width) * (m_max_depth - 1);
         active &= i < n_light_verts;
-        dr::Loop<Bool> loop("Connect Sensor", i, active);
-        while (loop(active)) {
-            UInt32 idx = offset + i;
-            Vertex3f vert = dr::zeros<Vertex3f>();
-            if constexpr (JIT) {
-                vert = dr::gather<Vertex3f>(verts_light, idx);
-            }
+//        dr::Loop<Bool> loop("Connect Sensor", i, active);
+//        while (loop(active)) {
+        for (uint32_t i_ = 0; i_ < m_max_depth - 1; i_++) {
+//            UInt32 idx = offset + i;
+//            Vertex3f vert = dr::zeros<Vertex3f>();
+//            if constexpr (JIT) {
+//                vert = dr::gather<Vertex3f>(verts_light, idx, active);
+//            }
+            Vertex3f vert = verts_light[i_];
             SurfaceInteraction3f si(vert);
             Point2f aperture_sample;
             if (sensor->needs_aperture_sample())
-                aperture_sample = sampler->next_2d();
+                aperture_sample = sampler->next_2d(active);
             auto [sensor_ds, sensor_weight] =
-                sensor->sample_direction(si, aperture_sample);
+                sensor->sample_direction(si, aperture_sample, active);
             Spectrum weight = vert.throughput * sensor_weight * wav_weight;
-            connect_sensor(scene, si, sensor_ds, vert.bsdf(), weight, block, sample_scale);
+            connect_sensor(scene, si, sensor_ds, vert.bsdf(), weight, block, sample_scale, active);
 
             // Check for termination
-            i++;
-            active &= i < n_light_verts;
+            active &= (i + 1) < n_light_verts;
+            i += dr::select(active, 1, 0);
         }
 
         return { 0.f, false };
@@ -382,24 +394,24 @@ public:
      */
     // TODO: Delta vertices ignored for now
     // TODO: Can we apply Russian Roulette?
-    std::pair<UInt32, Vertex3f> random_walk(
-                       BSDFContext bsdf_ctx,
+    UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
                        uint32_t max_depth,
+                       Vertex3f* vertices,
                        const Ray3f &ray_,
                        const Vertex3f &prev_vert_,
                        const Spectrum &throughput_,
                        Float pdf_fwd_,
                        Mask active_ = true) const {
         if (unlikely(max_depth == 0))
-            return { 0, dr::zeros<Vertex3f>() };
+//            return { 0, dr::zeros<Vertex3f>() };
+            return 0;
+//        constexpr bool JIT = dr::is_jit_v<Float>;
 
-        constexpr bool JIT = dr::is_jit_v<Float>;
-
-        uint32_t width = dr::width(ray_);
-        auto vertices = dr::empty<Vertex3f>(width * max_depth);
-        UInt32 offset = dr::arange<UInt32>(width) * max_depth;
+//        uint32_t width = dr::width(ray_);
+//        auto vertices = dr::empty<Vertex3f>(width * max_depth);
+//        UInt32 offset = dr::arange<UInt32>(width) * max_depth;
         Ray3f ray = Ray3f(ray_);
         UInt32 n_verts = 0;
         Vertex3f prev_vert = prev_vert_;
@@ -455,10 +467,10 @@ public:
             active &= active_next_;
         }
 
-        dr::Loop<Bool> loop("Random Walk", sampler, ray, n_verts, prev_vert, throughput, pdf_fwd, active);
-        loop.set_max_iterations(max_depth);
-
-        while (loop(active)) {
+//        dr::Loop<Bool> loop("Random Walk", sampler, ray, n_verts, prev_vert, throughput, pdf_fwd, active);
+//        loop.set_max_iterations(max_depth);
+//        while (loop(active)) {
+        for (uint32_t i = 0; i < max_depth; i++) {
             Mask is_inf = dr::eq(prev_vert.dist, dr::Infinity<Float>);
             Mask not_zero = dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
             Mask active_next = active && !is_inf && not_zero && ((n_verts + 1) < max_depth);
@@ -525,14 +537,15 @@ public:
             }
 
             // Scatter previous vertex into `vertices`
-            UInt32 idx = offset + n_verts;
-            if constexpr (JIT) {
-                dr::scatter(vertices, prev_vert, idx);
-            }
+//            UInt32 idx = offset + n_verts;
+//            if constexpr (JIT) {
+//                dr::scatter(vertices, prev_vert, idx);
+//            }
+            vertices[i] = prev_vert;
 
             // Update loop variables
             ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
-            n_verts++;
+            n_verts += dr::select(active, 1, 0);
             // Ensure `prev_vert` stores the last vertex
             prev_vert = dr::select(active_next, curr_vert, prev_vert);
             throughput *= bsdf_weight;
@@ -542,7 +555,7 @@ public:
 
         Assert(!dr::any(n_verts > max_depth));
 
-        return { n_verts, vertices };
+        return n_verts;
     }
 
 #ifdef USE_MIS
@@ -562,6 +575,7 @@ public:
     // TODO: Delta lights ignored for now
     auto generate_light_subpath(const Scene *scene,
                                 Sampler *sampler,
+                                Vertex3f *vertices,
                                 Float time,
                                 const Wavelength &wavelengths,
                                 Mask active = true) const {
@@ -605,8 +619,8 @@ public:
         pdf_fwd = dr::select(is_inf, pdf_pos, pdf_dir);
 
         return random_walk(BSDFContext(TransportMode::Importance),
-                                     scene, sampler, m_max_depth - 1, ray, vert,
-                                     throughput, pdf_fwd, active);
+                           scene, sampler, m_max_depth - 1, vertices,
+                           ray, vert, throughput, pdf_fwd, active);
     }
 
 #ifdef CONNECT
