@@ -9,7 +9,7 @@
 #include <mitsuba/render/vertex.h>
 #include <mitsuba/render/records.h>
 
-//#define USE_MIS
+#define USE_MIS
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -134,9 +134,9 @@ public:
         NotImplementedError("sample");
     }
 
-    // FIXME: Image starts to deviate from that of path tracer starting from max depth 2
     // TODO: Take care of scalar mode
     // TODO: Null materials ignored for now
+    // TODO: Not computing uv partials at vertices
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      const Sensor *sensor,
                                      Sampler *sampler,
@@ -205,51 +205,39 @@ public:
         UInt32 i = 0;
         active &= i < n_camera_verts;
 
-        // Handle first vertex
-        {
-            prev_vert = verts_camera[0];
-            SurfaceInteraction3f si(prev_vert);
-
-            valid_ray |= active && si.is_valid();
-            result = spec_fma(prev_vert.throughput,
-                              prev_vert.emitter->eval(si, active),
-                              result);
-            i += dr::select(active, 1, 0);
-            active &= i < n_camera_verts;
-        }
-
-        for (uint32_t i_ = 1; i_ < m_max_depth; i_++) {
+        for (uint32_t i_ = 0; i_ < m_max_depth; i_++) {
             Vertex3f vert = verts_camera[i_];
             SurfaceInteraction3f prev_si(prev_vert), si(vert);
             DirectionSample3f ds(scene, si, prev_si);
 
             // BSDF sampling
+            Mask active_bsdf = active && i > 0;
             Float pdf_bsdf = vert.pdf_fwd;
             // Convert area measure to solid angle measure
             pdf_bsdf *= dr::select(si.is_valid(),
                                    dr::sqr(vert.dist) / dr::abs_dot(vert.d, vert.n),
                                    1.f);
-            Float pdf_em = scene->pdf_emitter_direction(prev_si, ds, active);
-            Float weight_mis = mis_weight(pdf_bsdf, pdf_em);
-            result = spec_fma(vert.throughput, vert.emitter->eval(si, active) * weight_mis, result);
+            Float pdf_em = scene->pdf_emitter_direction(prev_si, ds, active_bsdf);
+            Float weight_mis = dr::select(active_bsdf, mis_weight(pdf_bsdf, pdf_em), 1.f);
+            result = spec_fma(vert.throughput, si.emitter(scene, active)->eval(si, active) * weight_mis, result);
 
             // Emitter sampling
+            Mask active_em = active && (i + 1) < m_max_depth;
             Spectrum weight_emitter = 0.f, bsdf_val = 0.f;
-            pdf_bsdf = 0.f;
+            pdf_bsdf = 0.f; weight_mis = 0.f;
             DirectionSample3f ds_emitter = dr::zeros<DirectionSample3f>();
             std::tie(ds_emitter, weight_emitter) = scene->sample_emitter_direction(
-                                            prev_si, sampler->next_2d(), true);
-//            Mask active_em = active && dr::neq(ds.pdf, 0.f);
-            Vector3f wo = prev_si.to_local(ds_emitter.d);
-            std::tie(bsdf_val, pdf_bsdf) = prev_vert.bsdf()->eval_pdf(BSDFContext(), prev_si, wo);
-            bsdf_val = prev_si.to_world_mueller(bsdf_val, -wo, prev_si.wi);
-            weight_mis = mis_weight(ds.pdf, pdf_bsdf);
-            result = spec_fma(prev_vert.throughput,
+                                            si, sampler->next_2d(active_em), true, active_em);
+            active_em &= dr::neq(ds_emitter.pdf, 0.f);
+            Vector3f wo = si.to_local(ds_emitter.d);
+            std::tie(bsdf_val, pdf_bsdf) = vert.bsdf()->eval_pdf(BSDFContext(), si, wo, active_em);
+            bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
+            weight_mis = mis_weight(ds_emitter.pdf, pdf_bsdf);
+            result[active_em] = spec_fma(vert.throughput,
                               bsdf_val * weight_emitter * weight_mis,
                               result);
-
             // Update loop variables
-            prev_vert = dr::select(active, vert, prev_vert);
+            prev_vert = vert;
             i += dr::select(active, 1, 0);
             active &= i < n_camera_verts;
         }
@@ -368,6 +356,7 @@ public:
      * \return
      *    Number of valid vertices stored
      */
+    // TODO: Don't store emitters. Define emitter() for vertices as for surface interactions.
     // TODO: Delta vertices ignored for now
     // TODO: Can we apply Russian Roulette?
     UInt32 random_walk(BSDFContext bsdf_ctx,

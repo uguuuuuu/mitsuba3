@@ -577,7 +577,8 @@ public:
         Float inv_sin_theta = dr::safe_rsqrt(dr::maximum(
             dr::sqr(d.x()) + dr::sqr(d.z()), dr::sqr(dr::Epsilon<Float>)));
 
-        return m_warp.eval(uv) * inv_sin_theta * (1.f / (2.f * dr::sqr(dr::Pi<Float>)));
+        Float pdf = m_warp.eval(uv, nullptr, active) * inv_sin_theta * (1.f / (2.f * dr::sqr(dr::Pi<Float>)));
+        return dr::select(active, pdf, 0.f);
     }
 
     Spectrum eval_direction(const Interaction3f &it,
