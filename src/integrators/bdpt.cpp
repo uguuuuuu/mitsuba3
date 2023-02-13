@@ -356,7 +356,6 @@ public:
      * \return
      *    Number of valid vertices stored
      */
-    // TODO: Don't store emitters. Define emitter() for vertices as for surface interactions.
     // TODO: Delta vertices ignored for now
     // TODO: Can we apply Russian Roulette?
     UInt32 random_walk(BSDFContext bsdf_ctx,
@@ -485,8 +484,8 @@ public:
             bsdf_ctx.reverse();
             Vector3f wo = si.wi;
             si.wi = bsdf_sample.wo;
-            Float pdf_bsdf = bsdf->pdf(bsdf_ctx, si, wo, active_next);
-            Float pdf_pos = pdf_bsdf * dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
+            Float pdf_dir = bsdf->pdf(bsdf_ctx, si, wo, active_next);
+            Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(si.t)) * dr::abs_dot(prev_vert.n, si.to_world(wo));
             si.wi = wo;
             bsdf_ctx.reverse();
             if (bsdf_ctx.mode == TransportMode::Radiance) {
@@ -501,15 +500,17 @@ public:
             }
             else {
                 // Use directional PDF for infinite lights
-                prev_vert.pdf_rev = dr::select(is_inf, pdf_bsdf, pdf_pos);
+                Mask is_inf = has_flag(prev_vert.emitter->flags(), EmitterFlags::Infinite);
+                prev_vert.pdf_rev = dr::select(is_inf, pdf_dir, pdf_pos);
             }
+            prev_vert.pdf_rev = dr::select(active_next, prev_vert.pdf_rev, 0.f);
 
             // Store previous vertex
 //            UInt32 idx = offset + n_verts;
 //            if constexpr (JIT) {
 //                dr::scatter(vertices, prev_vert, idx);
 //            }
-            vertices[i] = prev_vert;
+            vertices[i] = dr::select(active, prev_vert, dr::zeros<Vertex3f>());
 
             // Update loop variables
             ray = si.spawn_ray(si.to_world(bsdf_sample.wo));
