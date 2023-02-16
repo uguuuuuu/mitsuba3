@@ -220,7 +220,6 @@ public:
     sample_ray_3(Float time, Float sample1, const Point2f &sample2,
                const PositionSample3f &ps, Mask active = true) const;
 
-
     /**
      * \brief Sample ray given position and wavelengths
      * \param time
@@ -245,6 +244,7 @@ public:
     sample_ray_13(Float time, const Wavelength &wavelengths,
                    const Point2f &sample2, const PositionSample3f &ps,
                    Mask active = true) const;
+
     /**
      * \brief Evaluate positional PDF of ray origin and directional
      * PDF of ray direction
@@ -260,7 +260,6 @@ public:
      */
     virtual std::pair<Float, Float>
     pdf_ray(const Ray3f &ray, const PositionSample3f &ps, Mask active = true) const;
-
 
     /**
      * \brief Jointly evaluate PDF and importance sample a ray proportional to the endpoint's

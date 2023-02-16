@@ -259,12 +259,14 @@ public:
             Vertex3f vert = verts_light[s - 1];
             SurfaceInteraction3f si(vert);
 
+            // Sample a point on sensor aperture
             Point2f aperture_sample;
             if (sensor->needs_aperture_sample())
                 aperture_sample = sampler->next_2d(active_s);
             auto [sensor_ds, sensor_weight] =
                 sensor->sample_direction(si, aperture_sample, active_s);
 
+            // Compute reverse PDF of last vertex of light subpath
             Ray3f ray(sensor_ds.p, -sensor_ds.d);
             auto [_, pdf_rev] = sensor->pdf_ray(ray, sensor_ds, active_s);
             vert.pdf_rev = pdf_rev;
@@ -285,8 +287,11 @@ public:
             DirectionSample3f ds(scene, si, si_prev);
             Mask active_t = active && (t - 1) < n_camera_verts;
             active_t &= dr::neq(vert.emitter, nullptr);
+            Mask is_inf = dr::eq(vert.dist, dr::Infinity<Float>);
 
+            // Compute reverse PDF of last vertex of camera subpath
             Float pdf_rev = scene->pdf_emitter_direction(si_prev, ds, active_t);
+            pdf_rev *= dr::select(is_inf, 1.f, dr::rcp(dr::sqr(vert.dist)) * dr::abs_dot(vert.n, vert.d));
             vert.pdf_rev = pdf_rev;
             Float weight_mis = mis_weight(verts_camera.get(), nullptr, t, 0, vert, active_t);
 
@@ -300,14 +305,30 @@ public:
         // Sample emitter and connect
         for (uint32_t t = 1; t < m_max_depth; t++) {
             Mask active_t = active && (t - 1) < n_camera_verts;
-            Vertex3f vert = verts_camera[t - 1];
-            SurfaceInteraction3f si(vert);
+            Vertex3f vert_camera = verts_camera[t - 1];
+            SurfaceInteraction3f si(vert_camera);
+            active_t &= si.is_valid();
 
-            scene->sample_emitter_direction();
+            // Create the light vertex
+            auto [ds_emitter, weight_emitter] =
+                scene->sample_emitter_direction(si, sampler->next_2d(active_t), true, active_t);
+            active_t &= ds_emitter.pdf > 0;
+            Ray3f ray(ds_emitter.p, -ds_emitter.d);
+            Float pdf_fwd = ds_emitter.pdf;
+            Mask is_inf = has_flag(ds_emitter.emitter->flags(), EmitterFlags::Infinite);
+            pdf_fwd *= dr::select(is_inf, 1.f, dr::rcp(dr::sqr(ds_emitter.dist)) * dr::abs_dot(ds_emitter.n, ds_emitter.d));
+            Vertex3f vert_light(ray, ds_emitter, ds_emitter.emitter, pdf_fwd, weight_emitter);
 
-            Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(), t, 1, active_t);
+            Float weight_mis = mis_weight(verts_camera.get(), nullptr, t, 1,
+                                          vert_light, active_t);
+
+            BSDFPtr bsdf = vert_camera.bsdf();
+            Vector3f wo = si.to_local(ds_emitter.d);
+            Spectrum bsdf_val = bsdf->eval(BSDFContext(), si, wo, active_t);
+            bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
+
+            result = spec_fma(vert_camera.throughput, bsdf_val * weight_emitter * weight_mis, result);
         }
-
 
         // t > 0, s > 1
         // Connect in the middle
@@ -316,8 +337,9 @@ public:
 
                 Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(), t, s, dr::zeros<Vertex3f>(), active);
 
-                Spectrum throughput = connect_bdpt(verts_camera, verts_light, t, s, active);
+                Spectrum throughput = connect_bdpt(verts_camera.get(), verts_light.get(), t, s, active);
 
+                result = spec_fma(throughput, weight_mis, result);
             }
         }
 #endif // #ifdef CONNECT
@@ -585,24 +607,39 @@ public:
 #endif
 
 #ifdef CONNECT
-    Spectrum connect_bdpt() const {
-        return 1.f;
-        // Handle the case where the camera vertex is on a light and s != 0
-        // by returning zero
+    Spectrum connect_bdpt(const Scene *scene,
+                          const Vertex3f &vert_camera,
+                          const Vertex3f &vert_light,
+                          Mask active = true) const {
+        SurfaceInteraction3f si_camera(vert_camera);
+        SurfaceInteraction3f si_light(vert_light);
+        BSDFPtr bsdf_camera = vert_camera.bsdf();
+        BSDFPtr bsdf_light = vert_light.bsdf();
+        active &= dr::neq(vert_camera.dist, dr::Infinity<Float>);
 
-        // Handle the case where s == 0
-        // by treating the camera subpath as a complete path
+        // Test visibility
+        Ray3f ray = si_camera.spawn_ray_to(vert_light.p);
+        Mask occluded = scene->ray_test(ray, active);
+        active &= !occluded;
 
+        Vector3f cam_to_light = vert_light.p - vert_camera.p;
+        Float dist2 = dr::squared_norm(cam_to_light);
+        cam_to_light = cam_to_light / dr::sqrt(dist2);
 
-        // Handle the case where t == 1
-        // by connecting the light subpath to the camera
+        Vector3f wo_camera = si_camera.to_local(cam_to_light);
+        Spectrum bsdf_val_camera =
+            bsdf_camera->eval(BSDFContext(), si_camera, wo_camera, active);
+        bsdf_val_camera =
+            si_camera.to_world_mueller(bsdf_val_camera, -wo_camera, si_camera.wi);
 
-        // Handle the case where s == 1
-        // by connecting the camera subpath to a light
+        Vector3f wo_light = si_light.to_local(-cam_to_light);
+        Spectrum bsdf_val_light = bsdf_light->eval(
+            BSDFContext(TransportMode::Importance), si_light, wo_light, active);
+        bsdf_val_light = si_light.to_world_mueller(bsdf_val_light, -si_light.wi, wo_light);
 
-        // Handle the general case
-
-        // Multiply radiance by MIS weight
+        Spectrum result = vert_camera.throughput * bsdf_val_camera *
+                          vert_light.throughput * bsdf_val_light / dist2;
+        return dr::select(active, result, 0.f);
     }
 #endif
 
@@ -734,6 +771,9 @@ public:
 
         Spectrum emitter_weight = dr::zeros<Spectrum>();
         SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+#ifdef CONNECT
+        Float pdf_fwd           = scene->pdf_emitter(emitter_idx, active);
+#endif
 
         // Sample direction for infinite emitters
         Mask is_infinite = has_flag(emitter->flags(), EmitterFlags::Infinite);
@@ -742,6 +782,10 @@ public:
                                  sensor->world_transform().translation());
             auto [ds, dir_weight] = emitter->sample_direction(
                 ref_it, sampler->next_2d(is_infinite && active), is_infinite && active);
+
+#ifdef CONNECT
+            pdf_fwd *= dr::select(is_infinite, ds.pdf, 1.f);
+#endif
 
             // Convert solid angle measure to area measure
             emitter_weight[is_infinite] =
@@ -754,6 +798,10 @@ public:
         if (dr::any_or<true>(!is_infinite)) {
             auto [ps, pos_weight] =
             emitter->sample_position(time, sampler->next_2d(!is_infinite && active), !is_infinite && active);
+
+#ifdef CONNECT
+            pdf_fwd *= dr::select(!is_infinite, ps.pdf, 1.f);
+#endif
 
             emitter_weight[!is_infinite] = pos_weight;
             si[!is_infinite] = SurfaceInteraction3f(ps, wavelengths);
@@ -769,7 +817,13 @@ public:
         si.shape = emitter->shape();
 
 #ifdef CONNECT
-        Float weight_mis = mis_weight(nullptr, nullptr, 0, 1, Vertex3f(si), active);
+        Vertex3f vert = dr::zeros<Vertex3f>();
+        vert.pdf_fwd = pdf_fwd;
+        Ray3f ray(sensor_ds.p, -sensor_ds.d);
+        Float pdf_rev = 0.f;
+        std::tie(_, pdf_rev) = sensor->pdf_ray(ray, sensor_ds, active);
+        vert.pdf_rev = pdf_rev;
+        Float weight_mis = mis_weight(nullptr, nullptr, 0, 1, vert, active);
 #else
         Float weight_mis = 1.f;
 #endif
