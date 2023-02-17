@@ -134,6 +134,7 @@ public:
         NotImplementedError("sample");
     }
 
+    // TODO: Can we still use wavefront-style recorded loop instead of for-loop?
     // TODO: Take care of scalar mode
     // TODO: Null materials ignored for now
     // TODO: Not computing uv partials at vertices
@@ -249,8 +250,11 @@ public:
 
 #ifdef CONNECT
         // t = 0, s = 1
-        sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
-                                ray.time, ray.wavelengths, wav_weight, active);
+        // Sample emitter and sensor
+        dr::eval(
+            sample_visible_emitters(scene, sensor, sampler, block, sample_scale,
+                                ray.time, ray.wavelengths, wav_weight, active)
+            );
 
         // t = 0, s > 1
         // Sample sensor and connect
@@ -274,7 +278,9 @@ public:
                 mis_weight(nullptr, verts_light.get(), 0, s, vert, active_s);
 
             Spectrum weight = vert.throughput * sensor_weight * wav_weight * weight_mis;
-            connect_sensor(scene, si, sensor_ds, vert.bsdf(), weight, block, sample_scale, active_s);
+            dr::eval(
+                connect_sensor(scene, si, sensor_ds, vert.bsdf(), weight, block, sample_scale, active_s)
+                );
         }
 
         Spectrum result = 0.f;
@@ -299,6 +305,7 @@ public:
                               vert.emitter->eval(si, active_t) * weight_mis,
                               result);
             vert_prev = vert;
+            dr::eval(result);
         }
 
         // s = 1, t > 0
@@ -328,20 +335,24 @@ public:
             bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
 
             result = spec_fma(vert_camera.throughput, bsdf_val * weight_emitter * weight_mis, result);
+            dr::eval(result);
         }
 
         // t > 0, s > 1
         // Connect in the middle
-        for (uint32_t t = 1; t < m_max_depth + 1; t++) {
+        for (uint32_t t = 1; t < m_max_depth - 1; t++) {
             for (uint32_t s = 2; s < m_max_depth + 1 - t; s++) {
 
                 Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(), t, s, dr::zeros<Vertex3f>(), active);
 
-                Spectrum throughput = connect_bdpt(verts_camera.get(), verts_light.get(), t, s, active);
+                Spectrum throughput = connect_bdpt(scene, verts_camera[t-1], verts_light[s-1], active);
 
                 result = spec_fma(throughput, weight_mis, result);
+                dr::eval(result);
             }
         }
+
+        return { result, n_camera_verts > 0 };
 #endif // #ifdef CONNECT
     }
 
@@ -405,7 +416,7 @@ public:
             active_next &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
             active_next &= !dr::eq(prev_vert.dist, dr::Infinity<Float>);
             SurfaceInteraction3f si = scene->ray_intersect(ray, active_next);
-            if (!(scene->environment() && bsdf_ctx.mode == TransportMode::Radiance)) {
+            if (!(bsdf_ctx.mode == TransportMode::Radiance && scene->environment() && !m_hide_emitters)) {
                 active_next &= si.is_valid();
             }
 
@@ -755,7 +766,7 @@ public:
     }
 
     // TODO: Delta lights ignored for now
-    void sample_visible_emitters(const Scene *scene,
+    Spectrum sample_visible_emitters(const Scene *scene,
                                  const Sensor *sensor,
                                  Sampler *sampler,
                                  ImageBlock *block,
@@ -832,7 +843,7 @@ public:
         Spectrum weight = emitter_idx_weight * emitter_weight * sensor_weight * radiance * wav_weight * weight_mis;
         weight = dr::select(active, weight, 0.f);
 
-        connect_sensor(scene, si, sensor_ds, nullptr, weight, block, sample_scale, active);
+        return connect_sensor(scene, si, sensor_ds, nullptr, weight, block, sample_scale, active);
     }
 #endif // #if !defined(CONNECT) && !defined(USE_MIS)
 
