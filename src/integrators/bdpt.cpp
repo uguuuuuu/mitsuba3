@@ -275,7 +275,9 @@ public:
             auto [_, pdf_rev] = sensor->pdf_ray(ray, sensor_ds, active_s);
             vert.pdf_rev = pdf_rev;
             Float weight_mis =
-                mis_weight(nullptr, verts_light.get(), 0, s, vert, active_s);
+                mis_weight(verts_camera.get(), verts_light.get(),
+                           n_camera_verts, n_light_verts,
+                           0, s, vert, active_s);
 
             Spectrum weight = vert.throughput * sensor_weight * wav_weight * weight_mis;
             dr::eval(
@@ -299,7 +301,9 @@ public:
             Float pdf_rev = scene->pdf_emitter_direction(si_prev, ds, active_t);
             pdf_rev *= dr::select(is_inf, 1.f, dr::rcp(dr::sqr(vert.dist)) * dr::abs_dot(vert.n, vert.d));
             vert.pdf_rev = pdf_rev;
-            Float weight_mis = mis_weight(verts_camera.get(), nullptr, t, 0, vert, active_t);
+            Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(),
+                                          n_camera_verts, n_light_verts,
+                                          t, 0, vert, active_t);
 
             result = spec_fma(vert.throughput,
                               vert.emitter->eval(si, active_t) * weight_mis,
@@ -326,8 +330,9 @@ public:
             pdf_fwd *= dr::select(is_inf, 1.f, dr::rcp(dr::sqr(ds_emitter.dist)) * dr::abs_dot(ds_emitter.n, ds_emitter.d));
             Vertex3f vert_light(ray, ds_emitter, ds_emitter.emitter, pdf_fwd, weight_emitter);
 
-            Float weight_mis = mis_weight(verts_camera.get(), nullptr, t, 1,
-                                          vert_light, active_t);
+            Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(),
+                                          n_camera_verts, n_light_verts,
+                                          t, 1, vert_light, active_t);
 
             BSDFPtr bsdf = vert_camera.bsdf();
             Vector3f wo = si.to_local(ds_emitter.d);
@@ -343,7 +348,9 @@ public:
         for (uint32_t t = 1; t < m_max_depth - 1; t++) {
             for (uint32_t s = 2; s < m_max_depth + 1 - t; s++) {
 
-                Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(), t, s, dr::zeros<Vertex3f>(), active);
+                Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(),
+                                              n_camera_verts, n_light_verts,
+                                              t, s, dr::zeros<Vertex3f>(), active);
 
                 Spectrum throughput = connect_bdpt(scene, verts_camera[t-1], verts_light[s-1], active);
 
@@ -377,7 +384,7 @@ public:
      * \return
      *    Number of valid vertices stored
      */
-    // TODO: Delta vertices ignored for now
+    // TODO: Delta lights ignored for now
     // TODO: Can we apply Russian Roulette?
     UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
@@ -510,7 +517,7 @@ public:
             si.wi = wo;
             bsdf_ctx.reverse();
             if (bsdf_ctx.mode == TransportMode::Radiance) {
-                // If the current vertex is on an infinite light,
+                // If the current vertex is on the environment map,
                 // the previous vertex's reverse PDF is computed in a different way
                 Float pdf_env =
                     dr::rcp(dr::sqr(scene->bbox().bounding_sphere().radius) *
@@ -635,7 +642,7 @@ public:
 
         Vector3f cam_to_light = vert_light.p - vert_camera.p;
         Float dist2 = dr::squared_norm(cam_to_light);
-        cam_to_light = cam_to_light / dr::sqrt(dist2);
+        cam_to_light = cam_to_light * dr::rsqrt(dist2);
 
         Vector3f wo_camera = si_camera.to_local(cam_to_light);
         Spectrum bsdf_val_camera =
@@ -649,7 +656,8 @@ public:
         bsdf_val_light = si_light.to_world_mueller(bsdf_val_light, -si_light.wi, wo_light);
 
         Spectrum result = vert_camera.throughput * bsdf_val_camera *
-                          vert_light.throughput * bsdf_val_light / dist2;
+                          vert_light.throughput * bsdf_val_light;
+        result *= dr::select(dr::eq(dist2, 0.f), 0.f, dr::rcp(dist2));
         return dr::select(active, result, 0.f);
     }
 #endif
@@ -657,14 +665,43 @@ public:
 #ifdef CONNECT
     Float mis_weight(const Vertex3f *verts_camera,
                      const Vertex3f *verts_light,
+                     UInt32 n_verts_camera,
+                     UInt32 n_verts_light,
                      uint32_t t, uint32_t s,
                      const Vertex3f &vert,
-                     Mask active = true) const {
+                     Mask active_ = true) const {
 #ifndef USE_MIS
+        if ( t + s == 1)
+            return dr::select(active_, 0.5f, 0.f);
+
+        uint32_t n_verts = t + s;
+        UInt32 n_techniques = 0;
+        Mask active = active_;
+
+        for ( uint32_t i = 0; i < n_verts + 1; i++ ) {
+            uint32_t n_verts_remain = n_verts - i;
+
+            Mask valid_tech = active;
+            if ( i > 0 && n_verts_remain > 0 ) {
+                Vertex3f vert_camera = verts_camera[i - 1];
+                valid_tech &= vert_camera.is_connectible();
+            }
+            if ( n_verts_remain > 1 ) {
+                Vertex3f vert_light = verts_light[n_verts_remain - 1];
+                valid_tech &= n_verts_remain < n_verts_light + 1;
+                valid_tech &= vert_light.is_connectible();
+            }
+
+            n_techniques += dr::select(valid_tech, 1, 0);
+            active &= i < n_verts_camera;
+        }
+        dr::eval(n_techniques);
+
         DRJIT_MARK_USED(verts_camera);
         DRJIT_MARK_USED(verts_light);
         DRJIT_MARK_USED(vert);
-        return dr::select(active, Float(1.f / (t + s + 1)), Float(0.f));
+//        return dr::select(active_, dr::rcp(Float(s + t + 1)), 0.f);
+        return dr::select(active_ && n_techniques > 0, dr::rcp(Float(n_techniques)), 0.f);
 #else
         Float sum_ri = 0;
 
@@ -834,7 +871,7 @@ public:
         Float pdf_rev = 0.f;
         std::tie(_, pdf_rev) = sensor->pdf_ray(ray, sensor_ds, active);
         vert.pdf_rev = pdf_rev;
-        Float weight_mis = mis_weight(nullptr, nullptr, 0, 1, vert, active);
+        Float weight_mis = mis_weight(nullptr, nullptr, 1, 1, 0, 1, vert, active);
 #else
         Float weight_mis = 1.f;
 #endif
@@ -868,3 +905,6 @@ public:
 MI_IMPLEMENT_CLASS_VARIANT(BDPTIntegrator, MonteCarloIntegrator);
 MI_EXPORT_PLUGIN(BDPTIntegrator, "Bidirectional Path Tracer integrator")
 NAMESPACE_END(mitsuba)
+
+#undef USE_MIS
+#undef CONNECT

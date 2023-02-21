@@ -8,7 +8,6 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
-// TODO: Delta vertices
 // TODO: UV partials
 
 template<typename Float_, typename Spectrum_>
@@ -49,8 +48,6 @@ struct Vertex {
     Float pdf_fwd = 0.f;
 
     Float pdf_rev = 0.f;
-
-//    Mask delta;
 
     Float J = 1.f;
 
@@ -124,6 +121,17 @@ struct Vertex {
     }
 
     BSDFPtr bsdf() const { return shape->bsdf(); }
+
+    Mask is_delta() const {
+        Mask bsdf_delta = has_flag(bsdf()->flags(), BSDFFlags::Delta);
+        Mask emitter_delta = has_flag(emitter->flags(), EmitterFlags::Delta);
+
+        return bsdf_delta || emitter_delta;
+    };
+
+    Mask is_connectible() const {
+        return !(dr::eq(dist, dr::Infinity<Float>) || is_delta());
+    }
 
     //! @}
     // =============================================================
