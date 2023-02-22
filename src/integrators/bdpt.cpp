@@ -9,7 +9,7 @@
 #include <mitsuba/render/vertex.h>
 #include <mitsuba/render/records.h>
 
-//#define USE_MIS
+#define USE_MIS
 #define CONNECT
 
 NAMESPACE_BEGIN(mitsuba)
@@ -293,6 +293,7 @@ public:
             Vertex3f vert = verts_camera[t - 1];
             SurfaceInteraction3f si(vert), si_prev(vert_prev);
             DirectionSample3f ds(scene, si, si_prev);
+            ds.dist = vert.dist;
             Mask active_t = active && (t - 1) < n_camera_verts;
             active_t &= dr::neq(vert.emitter, nullptr);
             Mask is_inf = dr::eq(vert.dist, dr::Infinity<Float>);
@@ -663,12 +664,13 @@ public:
 #endif
 
 #ifdef CONNECT
+    // TODO: Delta vertices ignored for now
     Float mis_weight(const Vertex3f *verts_camera,
                      const Vertex3f *verts_light,
                      UInt32 n_verts_camera,
                      UInt32 n_verts_light,
                      uint32_t t, uint32_t s,
-                     const Vertex3f &vert,
+                     const Vertex3f &vert_aux,
                      Mask active_ = true) const {
 #ifndef USE_MIS
         if ( t + s == 1)
@@ -703,25 +705,130 @@ public:
 //        return dr::select(active_, dr::rcp(Float(s + t + 1)), 0.f);
         return dr::select(active_ && n_techniques > 0, dr::rcp(Float(n_techniques)), 0.f);
 #else
-        Float sum_ri = 0;
-
-        // TODO: Update vertex properties for current strategy
-
-        Float ri = 1;
-        while (loop(active_t)) {
-            Vertex3f vert = dr::gather<>();
-            ri *= vert.pdf_rev / vert.pdf_fwd;
-            sum_ri += ri;
+        uint32_t n = s + t;
+        if ( n == 1 ) {
+            return vert_aux.pdf_fwd * dr::rcp(vert_aux.pdf_fwd + vert_aux.pdf_rev);
         }
 
-        ri = 1;
-        while (loop(active_s)) {
-            Vertex3f vert = dr::gather<>();
-            ri *= vert.pdf_rev / vert.pdf_fwd;
-            sum_ri += ri;
+        Float sum_ri = 0.f,
+              ri_camera = 1.f,
+              ri_light = 1.f;
+        uint32_t i_camera = t,
+                 i_light = s;
+        Vertex3f vert_camera = dr::zeros<Vertex3f>(),
+                 vert_light  = dr::zeros<Vertex3f>();
+
+        // When light subpath is a complete path
+        if ( t == 0 ) {
+            vert_light = vert_aux;
+            ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            sum_ri += ri_light;
+            i_light--;
         }
 
-        return dr::rcp(1 + sum_ri);
+        // When camera subpath is a complete path
+        else if ( s == 0 ) {
+            // Compute reverse PDF for second last vertex
+            vert_camera = verts_camera[t - 2];
+            vert_light = vert_aux;
+            SurfaceInteraction3f si_light(vert_light);
+            PositionSample3f ps(si_light);
+            Ray3f ray(ps.p, si_light.to_world(si_light.wi));
+            auto [_, pdf_rev] = vert_light.emitter->pdf_ray(ray, ps, active_);
+            pdf_rev *= dr::select(dr::eq(vert_light.dist, dr::Infinity<Float>),
+                                  1.f,
+                                  dr::sqr(vert_light.dist) * dr::abs_dot(vert_camera.n, vert_light.d));
+            vert_camera.pdf_rev = pdf_rev;
+            ri_camera *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            sum_ri += ri_camera;
+            ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
+            sum_ri += ri_camera;
+            i_camera -= 2;
+        }
+
+        // When there is only a single light vertex
+        else if ( s == 1 ) {
+            vert_camera = verts_camera[t - 1];
+            vert_light = vert_aux;
+            SurfaceInteraction3f si_camera(vert_camera),
+                                 si_light(vert_light);
+
+            PositionSample3f ps(si_light);
+            Ray3f ray(ps.p, si_light.to_world(si_light.wi));
+            auto [_, pdf_rev] = vert_light.emitter->pdf_ray(ray, ps, active_);
+            pdf_rev *= dr::select(dr::eq(vert_light.dist, dr::Infinity<Float>),
+                                  1.f,
+                                  dr::sqr(vert_light.dist) * dr::abs_dot(vert_camera.n, vert_light.d));
+            vert_camera.pdf_rev = pdf_rev;
+
+            pdf_rev = 0.f;
+            Vector3f cam_to_light = vert_light.p - vert_camera.p;
+            Float dist2 = dr::squared_norm(cam_to_light);
+            cam_to_light = cam_to_light * dr::rsqrt(dist2);
+            pdf_rev = vert_camera.bsdf()->pdf(BSDFContext(), si_camera, si_camera.to_local(cam_to_light), active_);
+            pdf_rev *= dr::select(has_flag(vert_light.emitter->flags(), EmitterFlags::Infinite),
+                                  1.f,
+                                  dr::rcp(dist2) * dr::abs_dot(-cam_to_light, vert_light.n));
+            vert_light.pdf_rev = pdf_rev;
+
+            ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
+            sum_ri += ri_camera;
+            ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            sum_ri += ri_light;
+            i_camera--;
+            i_light--;
+        }
+        else {
+            vert_camera = verts_camera[t - 1];
+            vert_light = verts_light[s - 1];
+            BSDFPtr bsdf_camera = vert_camera.bsdf(),
+                    bsdf_light  = vert_light.bsdf();
+            SurfaceInteraction3f si_camera(vert_camera), si_light(vert_light);
+
+            Vector3f cam_to_light = vert_light.p - vert_camera.p;
+            Float dist2           = dr::squared_norm(cam_to_light);
+            cam_to_light          = cam_to_light * dr::rsqrt(dist2);
+            vert_camera.pdf_rev   = bsdf_light->pdf(
+                BSDFContext(TransportMode::Importance), si_light,
+                si_light.to_local(-cam_to_light), active_);
+            vert_light.pdf_rev =
+                bsdf_camera->pdf(BSDFContext(), si_camera,
+                                 si_camera.to_local(cam_to_light), active_);
+            vert_camera.pdf_rev *=
+                dr::abs_dot(vert_camera.n, cam_to_light) * dr::rcp(dist2);
+            vert_light.pdf_rev *=
+                dr::abs_dot(vert_light.n, -cam_to_light) * dr::rcp(dist2);
+
+            ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
+            sum_ri += ri_camera;
+            ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            sum_ri += ri_light;
+            i_camera--;
+            i_light--;
+        }
+
+        for (uint32_t i = i_camera; i > 0; --i) {
+            Float pdf_fwd = dr::select(dr::eq(vert_camera.pdf_fwd, 0.f),
+                                       1.f, vert_camera.pdf_fwd);
+            Float pdf_rev = dr::select(dr::eq(vert_camera.pdf_rev, 0.f),
+                                       1.f, vert_camera.pdf_rev);
+            ri_camera *= pdf_rev / pdf_fwd;
+            sum_ri += ri_camera;
+            vert_camera = verts_camera[i == 0 ? i : i - 1];
+        }
+
+        for (uint32_t i = i_light; i > 0; --i) {
+            Vertex3f vert = verts_light[i - 1];
+            Float pdf_fwd = dr::select(dr::eq(vert_light.pdf_fwd, 0.f),
+                                       1.f, vert_light.pdf_fwd);
+            Float pdf_rev = dr::select(dr::eq(vert_light.pdf_rev, 0.f),
+                                       1.f, vert_light.pdf_rev);
+            ri_light *= pdf_rev / pdf_fwd;
+            sum_ri += ri_light;
+            vert_light = verts_light[i == 0 ? i : i - 1];
+        }
+
+        return dr::select(active_, dr::rcp(1 + sum_ri), 0.f);
 #endif
     }
 #elif defined(USE_MIS) // #if !defined(CONNECT) && defined(USE_MIS)
