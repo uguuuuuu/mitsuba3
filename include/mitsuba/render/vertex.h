@@ -51,7 +51,7 @@ struct Vertex {
 
     Float J = 1.f;
 
-    /// Direction from this vertex to previous vertex
+    /// Direction from this vertex to previous vertex in *local frame*
     Vector3f d;
 
     /// Distance from this vertex to previous vertex
@@ -89,7 +89,7 @@ struct Vertex {
         // Otherwise, `pdf` is directional
         pdf_fwd = pdf * dr::abs_dot(n, si.wi) *
                   dr::select(is_inf, 1.f, dr::rcp(dr::sqr(dist)));
-        // If next vertex is infinite light, `pdf_fwd` stores directional probability density,
+        // If current vertex is infinite light, `pdf_fwd` stores directional probability density,
         // Otherwise, `pdf_fwd` stores surface area probability density
         pdf_fwd = dr::select(si.is_valid(),
                         pdf_fwd,
@@ -124,10 +124,13 @@ struct Vertex {
 
     Mask is_delta() const {
         Mask bsdf_delta = has_flag(bsdf()->flags(), BSDFFlags::Delta);
-        Mask emitter_delta = has_flag(emitter->flags(), EmitterFlags::Delta);
 
-        return bsdf_delta || emitter_delta;
+        return bsdf_delta;
     };
+
+    Mask is_delta_light() const {
+        return has_flag(emitter->flags(), EmitterFlags::Delta);
+    }
 
     Mask is_connectible() const {
         return !(dr::eq(dist, dr::Infinity<Float>) || is_delta());
