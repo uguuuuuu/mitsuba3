@@ -9,7 +9,7 @@
 #include <mitsuba/render/vertex.h>
 #include <mitsuba/render/records.h>
 
-#define USE_MIS
+//#define USE_MIS
 #define CONNECT
 
 NAMESPACE_BEGIN(mitsuba)
@@ -701,7 +701,7 @@ public:
 
         DRJIT_MARK_USED(verts_camera);
         DRJIT_MARK_USED(verts_light);
-        DRJIT_MARK_USED(vert);
+        DRJIT_MARK_USED(vert_aux);
 //        return dr::select(active_, dr::rcp(Float(s + t + 1)), 0.f);
         return dr::select(active_ && n_techniques > 0, dr::rcp(Float(n_techniques)), 0.f);
 #else
