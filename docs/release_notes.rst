@@ -5,12 +5,30 @@ Being an experimental research framework, Mitsuba 3 does not strictly follow the
 `Semantic Versioning <https://semver.org/>`_ convention. That said, we will
 strive to document breaking API changes in the release notes below.
 
+
+Mitsuba 3.2.1
+-------------
+
+*February 22, 2023*
+
+- Upgrade Dr.Jit to v0.4.1
+- ``Film`` plugins can now have error-compensated accumulation in JIT modes 
+  `[afeefed] <https://github.com/mitsuba-renderer/mitsuba3/commit/afeefedc8db0d7381e023f80c00f527ce28725b7>`_
+- Fix and add missing Python bindings for ``Endpoint``/``Emitter``/``Sensor``
+  `[8f03c7d] <https://github.com/mitsuba-renderer/mitsuba3/commit/8f03c7db7b697a2bac17fe960a8d4a6863bece4d>`_
+- Numerically robust sphere-ray intersections
+  `[7d46e10] <https://github.com/mitsuba-renderer/mitsuba3/commit/7d46e10154b19945b2e4ee97ba7876ac917692c8>`_ .. `[0b483bf] <https://github.com/mitsuba-renderer/mitsuba3/commit/0b483bff5fdcc6d9663d73626bb1dd46674311a6>`_
+- Fix parallel scene loading with Python plugins
+  `[93bb99b] <https://github.com/mitsuba-renderer/mitsuba3/commit/93bb99b1ed20a3263b2fd82f1d5ab3a333afc002>`_
+- Various minor bug fixes
+
+
 Mitsuba 3.2.0
 -------------
 
 *January 6, 2023*
 
-- Upgrade Dr.Jit to v0.3.3
+- Upgrade Dr.Jit to v0.4.0
 
   - Various bug fixes
   - Stability improvements (race conditions, invalid code generation)
@@ -22,7 +40,7 @@ Mitsuba 3.2.0
 - Fix bug which would break the AD graph in ``spectral`` variants
   `[f3ac81b] <https://github.com/mitsuba-renderer/mitsuba3/commit/f3ac81bc5c6ce65d5843dde3a1d5f230353453e3>`_
 - Parallel scene loading in JIT variants
-  `[48c14a7] <https://github.com/mitsuba-renderer/mitsuba3/commit/48c14a709dcc6da9e44583e85eda5735f1888093>`_ .. `[187da96] <https://github.com/mitsuba-renderer/mitsuba3/commit/187da96afd45e14c17d82909fbbf50cb713c8196f4c0db0bb48b1f36de30659082355316de1da863>`_
+  `[48c14a7] <https://github.com/mitsuba-renderer/mitsuba3/commit/48c14a709dcc6da9e44583e85eda5735f1888093>`_ .. `[187da96] <https://github.com/mitsuba-renderer/mitsuba3/commit/187da96afd45e14c17d82909fbbf50cb713c8196>`_
 - Fix sampling of ``hg`` ``PhaseFunction``
   `[10d3514] <https://github.com/mitsuba-renderer/mitsuba3/commit/10d3514a0295cad4ac6d440c7ff326561c6da6a2>`_
 - Fix `envmap` updating in JIT variants
