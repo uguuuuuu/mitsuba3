@@ -134,6 +134,7 @@ public:
         NotImplementedError("sample");
     }
 
+    // TODO: Doesn't perform correctly when `m_hide_emitters` is true
     // TODO: Can we still use wavefront-style recorded loop instead of for-loop?
     // TODO: Take care of scalar mode
     // TODO: Null materials ignored for now
@@ -270,10 +271,12 @@ public:
                 aperture_sample = sampler->next_2d(active_s);
             auto [sensor_ds, sensor_weight] =
                 sensor->sample_direction(si, aperture_sample, active_s);
+            active_s &= sensor_ds.pdf > 0.f;
 
             // Compute reverse PDF of last vertex of light subpath
             Ray3f ray(sensor_ds.p, -sensor_ds.d);
             auto [_, pdf_rev] = sensor->pdf_ray(ray, sensor_ds, active_s);
+            pdf_rev *= dr::rcp(dr::sqr(sensor_ds.dist)) * dr::abs_dot(si.n, sensor_ds.d);
             vert.pdf_rev = pdf_rev;
             Float weight_mis =
                 mis_weight(nullptr, verts_light.get(),
@@ -342,12 +345,19 @@ public:
         // t > 0, s > 1
         // Connect in the middle
         for (uint32_t t = 1; t < m_max_depth - 1; t++) {
+            Vertex3f vert_camera = verts_camera[t - 1];
+            Mask active_t = active && (t - 1) < n_camera_verts;
+            active_t &= vert_camera.is_connectible();
+
             for (uint32_t s = 2; s < m_max_depth + 1 - t; s++) {
+                Vertex3f vert_light = verts_light[s - 1];
+                Mask active_s = active_t && (s - 1) < n_light_verts;
+                active_s &= vert_light.is_connectible();
 
                 Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(),
-                                              t, s, dr::zeros<Vertex3f>(), active);
+                                              t, s, dr::zeros<Vertex3f>(), active_s);
 
-                Spectrum throughput = connect_bdpt(scene, verts_camera[t-1], verts_light[s-1], active);
+                Spectrum throughput = connect_bdpt(scene, vert_camera, vert_light, active_s);
 
                 result = spec_fma(throughput, weight_mis, result);
                 dr::eval(result);
@@ -487,19 +497,7 @@ public:
             }
             else {
                 bsdf_weight = si.to_world_mueller(bsdf_weight, -si.wi, bsdf_sample.wo);
-                // Using geometric normals (wo points to the camera)
-                Float wi_dot_geo_n = dr::dot(si.n, -ray.d),
-                      wo_dot_geo_n = dr::dot(si.n, si.to_world(bsdf_sample.wo));
-
-                // Prevent light leaks due to shading normals
-                Mask valid = (wi_dot_geo_n * Frame3f::cos_theta(si.wi) > 0.f) &&
-                          (wo_dot_geo_n * Frame3f::cos_theta(bsdf_sample.wo) > 0.f);
-
-                // Adjoint BSDF for shading normals -- [Veach, p. 155]
-                Float correction = dr::select(valid & active_next,
-                                              dr::abs((Frame3f::cos_theta(si.wi) * wo_dot_geo_n) /
-                                           (Frame3f::cos_theta(bsdf_sample.wo) * wi_dot_geo_n)),
-                                              0.f);
+                Float correction = bsdf_correction(si, bsdf_sample.wo);
                 bsdf_weight *= correction;
             }
 
@@ -524,10 +522,16 @@ public:
                 prev_vert.pdf_rev = pdf_pos;
             }
             else {
-                // When in importance mode
-                // Use directional PDF for infinite lights
-                Mask is_inf = has_flag(prev_vert.emitter->flags(), EmitterFlags::Infinite);
-                prev_vert.pdf_rev = dr::select(is_inf, pdf_dir, pdf_pos);
+                if (i == 0) {
+                    // When in importance mode
+                    // Use directional PDF for infinite lights
+                    Mask is_inf       = has_flag(prev_vert.emitter->flags(),
+                                                 EmitterFlags::Infinite);
+                    prev_vert.pdf_rev = dr::select(is_inf, pdf_dir, pdf_pos);
+                }
+                else {
+                    prev_vert.pdf_rev = pdf_pos;
+                }
             }
             prev_vert.pdf_rev = dr::select(active_next, prev_vert.pdf_rev, 0.f);
 
@@ -631,7 +635,6 @@ public:
         SurfaceInteraction3f si_light(vert_light);
         BSDFPtr bsdf_camera = vert_camera.bsdf();
         BSDFPtr bsdf_light = vert_light.bsdf();
-        active &= dr::neq(vert_camera.dist, dr::Infinity<Float>);
 
         // Test visibility
         Ray3f ray = si_camera.spawn_ray_to(vert_light.p);
@@ -651,6 +654,8 @@ public:
         Vector3f wo_light = si_light.to_local(-cam_to_light);
         Spectrum bsdf_val_light = bsdf_light->eval(
             BSDFContext(TransportMode::Importance), si_light, wo_light, active);
+        Float correction = bsdf_correction(si_light, wo_light);
+        bsdf_val_light *= correction;
         bsdf_val_light = si_light.to_world_mueller(bsdf_val_light, -si_light.wi, wo_light);
 
         Spectrum result = vert_camera.throughput * bsdf_val_camera *
@@ -865,20 +870,8 @@ public:
 
             on_surface &= dr::neq(bsdf, nullptr);
             if (dr::any_or<true>(on_surface)) {
+                Float correction = bsdf_correction(si, local_d);
                 BSDFContext ctx(TransportMode::Importance);
-                Float wi_dot_geo_n = dr::dot(si.n, si.to_world(si.wi)),
-                      wo_dot_geo_n = dr::dot(si.n, sensor_ray.d);
-
-                // Prevent light leaks due to shading normals
-                Mask valid = (wi_dot_geo_n * Frame3f::cos_theta(si.wi) > 0.f) &&
-                             (wo_dot_geo_n * Frame3f::cos_theta(local_d) > 0.f);
-
-                // Adjoint BSDF for shading normals
-                Float correction = dr::select(valid,
-                    dr::abs((Frame3f::cos_theta(si.wi) * wo_dot_geo_n) /
-                            (Frame3f::cos_theta(local_d) * wi_dot_geo_n)),
-                    0.f);
-
                 surface_weight[on_surface] *=
                 correction * bsdf->eval(ctx, si, local_d, on_surface);
             }
@@ -961,6 +954,7 @@ public:
             aperture_sample = sampler->next_2d(active);
         }
         auto [sensor_ds, sensor_weight] = sensor->sample_direction(si, aperture_sample, active);
+        active &= sensor_ds.pdf > 0.f;
         si.wi = sensor_ds.d;
         si.shape = emitter->shape();
 
@@ -991,6 +985,24 @@ public:
             return a * b + c;
         else
             return dr::fmadd(a, b, c);
+    }
+
+    /**
+     * \brief Correction factor for adjoint BSDF for shading normals
+     * */
+    Float bsdf_correction(const SurfaceInteraction3f &si,
+                          const Vector3f &wo) const {
+        Float wi_dot_geo_n = dr::dot(si.n, si.to_world(si.wi)),
+              wo_dot_geo_n = dr::dot(si.n, si.to_world(wo));
+        // Prevent light leaks due to shading normals
+        Mask valid = (wi_dot_geo_n * Frame3f::cos_theta(si.wi) > 0.f) &&
+                     (wo_dot_geo_n * Frame3f::cos_theta(wo) > 0.f);
+        // [Veach, p. 155]
+        Float correction = dr::select(valid,
+                                      dr::abs((Frame3f::cos_theta(si.wi) * wo_dot_geo_n) /
+                                              (Frame3f::cos_theta(wo) * wi_dot_geo_n)),
+                                      0.f);
+        return correction;
     }
 
     std::string to_string() const override {

@@ -227,10 +227,13 @@ public:
         ray.d = m_to_world.value() * d;
 
         Float inv_z = dr::rcp(d.z());
-        Float near_t = m_near_clip * inv_z,
-              far_t  = m_far_clip * inv_z;
-        ray.o += ray.d * near_t;
-        ray.maxt = far_t - near_t;
+//        Float near_t = m_near_clip * inv_z,
+//              far_t  = m_far_clip * inv_z;
+//        ray.o += ray.d * near_t;
+//        ray.maxt = far_t - near_t;
+
+        Float far_t = m_far_clip * inv_z;
+        ray.maxt = far_t;
 
         return { ray, wav_weight };
     }
@@ -272,10 +275,12 @@ public:
         ray.d = m_to_world.value() * d;
 
         Float inv_z = dr::rcp(d.z());
-        Float near_t = m_near_clip * inv_z,
-              far_t  = m_far_clip * inv_z;
-        ray.o += ray.d * near_t;
-        ray.maxt = far_t - near_t;
+//        Float near_t = m_near_clip * inv_z,
+//              far_t  = m_far_clip * inv_z;
+//        ray.o += ray.d * near_t;
+//        ray.maxt = far_t - near_t;
+        Float far_t = m_far_clip * inv_z;
+        ray.maxt = far_t;
 
         ray.o_x = ray.o_y = ray.o;
 
