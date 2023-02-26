@@ -262,9 +262,9 @@ public:
         // t = 0, s > 1
         // Sample sensor and connect
         for (uint32_t s = 2; s < m_max_depth + 1; s++) {
-            Mask active_s = active && (s - 1) < n_light_verts;
             Vertex3f vert_light = verts_light[s - 1];
             SurfaceInteraction3f si(vert_light);
+            Mask active_s = active && (s - 1) < n_light_verts;
             active_s &= vert_light.is_connectible();
 
             // Sample a point on sensor aperture
@@ -274,16 +274,12 @@ public:
             auto [sensor_ds, sensor_weight] =
                 sensor->sample_direction(si, aperture_sample, active_s);
             active_s &= sensor_ds.pdf > 0.f;
+            Vertex3f vert_camera(Ray3f(sensor_ds.p, -sensor_ds.d), 0.f);
 
-            // Compute reverse PDF of last vertex of light subpath
-            Ray3f ray(sensor_ds.p, -sensor_ds.d);
-            Vertex3f vert_camera(ray, 0.f);
-            auto [_, pdf_rev] = sensor->pdf_ray(ray, sensor_ds, active_s);
-            pdf_rev *= dr::rcp(dr::sqr(sensor_ds.dist)) * dr::abs_dot(si.n, sensor_ds.d);
-            vert_light.pdf_rev = pdf_rev;
-            Float weight_mis =
-                mis_weight(nullptr, verts_light.get(),
-                           0, s, vert_light, active_s);
+            Float weight_mis = mis_weight(scene, sensor,
+                                          nullptr, verts_light.get(), 0, s,
+                                          vert_camera, vert_light,
+                                          active_s);
 
             Spectrum weight = vert_light.throughput * sensor_weight * wav_weight * weight_mis;
             dr::eval(
@@ -297,18 +293,14 @@ public:
         Vertex3f vert_prev(ray, 0.f);
         for (uint32_t t = 1; t < m_max_depth + 1; t++) {
             Vertex3f vert = verts_camera[t - 1];
-            SurfaceInteraction3f si(vert), si_prev(vert_prev);
-            DirectionSample3f ds(scene, si, si_prev);
+            SurfaceInteraction3f si(vert);
             Mask active_t = active && (t - 1) < n_camera_verts;
             active_t &= dr::neq(vert.emitter, nullptr);
-            Mask is_inf = dr::eq(vert.dist, dr::Infinity<Float>);
 
-            // Compute reverse PDF of last vertex of camera subpath
-            Float pdf_rev = scene->pdf_emitter_direction(si_prev, ds, active_t);
-            pdf_rev *= dr::select(is_inf, 1.f, dr::rcp(dr::sqr(ds.dist)) * dr::abs_dot(ds.n, ds.d));
-            vert.pdf_rev = pdf_rev;
-            Float weight_mis = mis_weight(verts_camera.get(), nullptr,
-                                          t, 0, vert, active_t);
+            Float weight_mis = mis_weight(scene, sensor,
+                                          verts_camera.get(), nullptr, t, 0,
+                                          vert_prev, vert,
+                                          active_t);
 
             result = spec_fma(vert.throughput,
                               vert.emitter->eval(si, active_t) * weight_mis,
@@ -320,21 +312,25 @@ public:
         // s = 1, t > 0
         // Sample emitter and connect
         for (uint32_t t = 1; t < m_max_depth; t++) {
-            Mask active_t = active && (t - 1) < n_camera_verts;
             Vertex3f vert_camera = verts_camera[t - 1];
             SurfaceInteraction3f si(vert_camera);
+            Mask active_t = active && (t - 1) < n_camera_verts;
             active_t &= vert_camera.is_connectible();
 
             // Create the light vertex
             auto [ds_emitter, weight_emitter] =
                 scene->sample_emitter_direction(si, sampler->next_2d(active_t), true, active_t);
             active_t &= ds_emitter.pdf > 0;
-            Ray3f ray(ds_emitter.p, -ds_emitter.d);
-            Float pdf_fwd = ds_emitter.pdf;
-            Vertex3f vert_light(ray, ds_emitter, ds_emitter.emitter, pdf_fwd, weight_emitter);
+            Vertex3f vert_light(Ray3f(ds_emitter.p, -ds_emitter.d),
+                                ds_emitter,
+                                ds_emitter.emitter,
+                                ds_emitter.pdf,
+                                0.f);
 
-            Float weight_mis = mis_weight(verts_camera.get(), nullptr,
-                                          t, 1, vert_light, active_t);
+            Float weight_mis = mis_weight(scene, sensor,
+                                          verts_camera.get(), nullptr,
+                                          t, 1, vert_camera, vert_light,
+                                          active_t);
 
             BSDFPtr bsdf = vert_camera.bsdf();
             Vector3f wo = si.to_local(ds_emitter.d);
@@ -357,8 +353,10 @@ public:
                 Mask active_s = active_t && (s - 1) < n_light_verts;
                 active_s &= vert_light.is_connectible();
 
-                Float weight_mis = mis_weight(verts_camera.get(), verts_light.get(),
-                                              t, s, dr::zeros<Vertex3f>(), active_s);
+                Float weight_mis = mis_weight(scene, sensor,
+                                              verts_camera.get(), verts_light.get(),
+                                              t, s, vert_camera, vert_light,
+                                              active_s);
 
                 Spectrum throughput = connect_bdpt(scene, vert_camera, vert_light, active_s);
 
@@ -506,10 +504,10 @@ public:
                 if (scene->environment()) {
                     // If the current vertex is on the environment map,
                     // the previous vertex's reverse PDF is computed in a different way
-                    auto envmap                     = scene->environment();
-                    Ray3f ray(si.p, si.wi);
-                    auto [pdf_env, _] = envmap->pdf_ray(ray, dr::zeros<PositionSample3f>(), active_next && !si.is_valid());
-                    pdf_env *= dr::abs_dot(prev_vert.n, -ray.d);
+                    auto envmap = scene->environment();
+                    auto [pdf_env, _] =
+                        envmap->pdf_ray(Ray3f(si.p, si.wi), dr::zeros<PositionSample3f>(), active_next && !si.is_valid());
+                    pdf_env *= dr::abs_dot(prev_vert.n, -si.wi);
                     pdf_pos = dr::select(si.is_valid(), pdf_pos, pdf_env);
                 }
                 prev_vert.pdf_rev = pdf_pos;
@@ -701,27 +699,30 @@ public:
 
         Mask is_inf_light = has_flag(vert_light.emitter->flags(), EmitterFlags::Infinite);
         Vector3f cam_to_light = vert_light.p - vert_camera.p;
-        Vector3f light_to_cam = -cam_to_light;
         Float dist2 = dr::squared_norm(cam_to_light);
         Float inv_dist2 = dr::rcp(dist2);
         cam_to_light *= dr::rsqrt(dist2);
+        Vector3f light_to_cam = -cam_to_light;
         SurfaceInteraction3f si_camera(vert_camera),
                              si_light(vert_light);
         PositionSample3f ps_camera(si_camera),
                          ps_light(si_light);
         Ray3f ray_camera(vert_camera.p, cam_to_light),
-              ray_light(vert_light.p, -cam_to_light);
+              ray_light(vert_light.p, light_to_cam);
+        BSDFPtr bsdf_camera = vert_camera.bsdf(),
+                bsdf_light  = vert_light.bsdf();
 
 
         // When light subpath is a complete path
         if ( t == 0 ) {
             auto [_, pdf_dir] =
                 sensor->pdf_ray(ray_camera, ps_camera, active_);
-            Float pdf_rev =
-                dr::select(is_inf_light, pdf_dir,
-                           pdf_dir * inv_dist2 *
-                               dr::abs_dot(vert_light.n, -cam_to_light));
-            vert_light.pdf_rev = pdf_rev;
+            Float pdf_pos = pdf_dir * inv_dist2 * dr::abs_dot(vert_light.n, light_to_cam);
+            if (s == 1)
+                vert_light.pdf_rev = dr::select(is_inf_light, pdf_dir, pdf_pos);
+            else
+                vert_light.pdf_rev = pdf_pos;
+
             ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
             sum_ri += ri_light;
             i_light--;
@@ -729,91 +730,105 @@ public:
 
         // When camera subpath is a complete path
         else if ( s == 0 ) {
-            DirectionSample3f ds(scene, si_camera, si_light);
-            vert_light.pdf_rev = scene->pdf_emitter_direction(si_camera, ds, active_);
-            vert_light.pdf_rev *= dr::select(is_inf_light,
-                                             1.f,
-                                             dr::rcp(dr::sqr(ds.dist)) * dr::abs_dot(ds.n, ds.d));
+            DirectionSample3f ds(scene, si_light, si_camera);
+            Float pdf_dir = scene->pdf_emitter_direction(si_camera, ds, active_);
+            Float pdf_pos = pdf_dir * inv_dist2 * dr::abs_dot(vert_light.n, light_to_cam);
+            vert_light.pdf_rev = dr::select(is_inf_light, pdf_dir, pdf_pos);
+
             ri_camera *= vert_light.pdf_rev / vert_light.pdf_fwd;
             sum_ri += ri_camera;
             i_camera--;
-
-            if (t > 1) {
-                // Compute reverse PDF for second last vertex
-                auto [_, pdf_rev] =
-                    vert_light.emitter->pdf_ray(ray_light, ps_light, active_ && !is_inf_light);
-                pdf_rev *= dr::rcp(dist2) *
-                           dr::abs_dot(vert_camera.n, -ray_light.d);
-                vert_camera.pdf_rev =
-                    dr::select(is_inf_light, vert_camera.pdf_rev, pdf_rev);
-                ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
-                sum_ri += ri_camera;
-                i_camera--;
-            }
         }
 
-        // When there is only a single light vertex
-        else if ( s == 1 ) {
-            auto [pdf_pos, pdf_dir] = vert_light.emitter->pdf_ray(ray_light, ps_light, active_);
-            vert_camera.pdf_rev  = dr::select(is_inf_light, pdf_pos, pdf_dir);
-            vert_camera.pdf_rev *= dr::abs_dot(vert_camera.n, cam_to_light) *
-                                   dr::select(is_inf_light, 1.f, inv_dist2);
-
-            vert_light.pdf_rev = vert_camera.bsdf()->pdf(BSDFContext(), si_camera, si_camera.to_local(cam_to_light), active_);
-
-            ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
-            sum_ri += ri_camera;
-            i_camera--;
-            ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
-            sum_ri += ri_light;
-            i_light--;
-        }
-        // General case where t > 0 and s > 1
+        // General case where t > 0 and s > 0
         else {
-            BSDFPtr bsdf_camera = vert_camera.bsdf(),
-                    bsdf_light  = vert_light.bsdf();
-
-            vert_camera.pdf_rev   = bsdf_light->pdf(
-                BSDFContext(TransportMode::Importance), si_light,
-                si_light.to_local(light_to_cam), active_);
             vert_light.pdf_rev =
                 bsdf_camera->pdf(BSDFContext(), si_camera,
                                  si_camera.to_local(cam_to_light), active_);
-            vert_camera.pdf_rev *=
-                dr::abs_dot(vert_camera.n, cam_to_light) * inv_dist2;
-            vert_light.pdf_rev *=
-                dr::abs_dot(vert_light.n, light_to_cam) * inv_dist2;
+
+            // When there is only a single light vertex,
+            // camera vertex's reverse PDF is based off
+            // of emitter ray's PDFs
+            // and light vertex's forward and reverse PDFs are both directional
+            if (s == 1) {
+                auto [pdf_pos, pdf_dir] =
+                    vert_light.emitter->pdf_ray(ray_light, ps_light, active_);
+                vert_camera.pdf_rev =
+                    dr::select(is_inf_light, pdf_pos, pdf_dir);
+                vert_camera.pdf_rev *=
+                    dr::abs_dot(vert_camera.n, cam_to_light) *
+                    dr::select(is_inf_light, 1.f, inv_dist2);
+            }
+            // Otherwise camera vertex's reverse PDF is based off of BSDF sampling
+            // and light vertex's reverse PDF is positional
+            else {
+                vert_light.pdf_rev *=
+                    dr::abs_dot(vert_light.n, light_to_cam) * inv_dist2;
+
+                vert_camera.pdf_rev   = bsdf_light->pdf(
+                    BSDFContext(TransportMode::Importance), si_light,
+                    si_light.to_local(light_to_cam), active_);
+                vert_camera.pdf_rev *=
+                    dr::abs_dot(vert_camera.n, cam_to_light) * inv_dist2;
+            }
 
             ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
             sum_ri += ri_camera;
+            i_camera--;
             ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
             sum_ri += ri_light;
-            i_camera--;
             i_light--;
         }
 
-        if (t > 1 && s > 0) {
-            Vertex3f vert_camera_prev = verts_camera[t - 2];
-            Vector3f wo = si_camera.wi;
-            si_camera.wi = si_camera.to_local(cam_to_light);
-            vert_camera_prev.pdf_rev = si_camera.bsdf()->pdf(
-                BSDFContext(TransportMode::Importance),
-                si_camera, wo, active_
-            );
-            vert_camera_prev.pdf_rev *= dr::rcp(dr::sqr(vert_camera.dist)) *
-                                        dr::abs_dot(vert_camera_prev.n,
-                                                    -si_camera.to_world(wo));
-            ri_camera *= vert_camera_prev.pdf_rev / vert_camera_prev.pdf_fwd;
+
+        // If there are more than 1 camera vertex,
+        // we have to correct the reverse PDF
+        // of the second last camera vertex
+        if (t > 1) {
+            // When the camera subpath is a complete path (as implied by s == 0),
+            // the second last camera vertex's reverse PDF
+            // is based off of emitter ray's directional PDF for area lights.
+            // For infinite lights, the reverse PDF was already taken care of
+            // by random_walk()
+            if (s == 0) {
+                auto [_, pdf_dir] =
+                    vert_light.emitter->pdf_ray(ray_light, ps_light, active_ && !is_inf_light);
+                Float pdf_pos = pdf_dir * inv_dist2 * dr::abs_dot(vert_camera.n, cam_to_light);
+                vert_camera.pdf_rev = dr::select(is_inf_light, vert_camera.pdf_rev, pdf_pos);
+                ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
+            }
+            // Otherwise the second last camera vertex's reverse PDF
+            // is based off of BSDF sampling
+            else {
+                Vertex3f vert_camera_prev = verts_camera[t - 2];
+                Vector3f wo               = si_camera.wi;
+                si_camera.wi              = si_camera.to_local(cam_to_light);
+                Float pdf_dir = bsdf_camera->pdf(BSDFContext(TransportMode::Importance),
+                                                 si_camera, wo, active_);
+                Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_camera.dist)) * dr::abs_dot(vert_camera_prev.n, -si_camera.to_world(wo));
+                vert_camera_prev.pdf_rev = pdf_pos;
+                ri_camera *= vert_camera_prev.pdf_rev / vert_camera_prev.pdf_fwd;
+            }
             sum_ri += ri_camera;
             i_camera--;
         }
+        // If there are more than 1 light vertex,
+        // we have to correct the reverse PDF
+        // of the second last light vertex
         if (s > 1) {
             Vertex3f vert_light_prev = verts_light[s - 2];
+            Mask is_inf_light_prev = has_flag(vert_light_prev.emitter->flags(), EmitterFlags::Infinite);
 
             Vector3f wo = si_light.wi;
             si_light.wi       = si_light.to_local(light_to_cam);
-            vert_light_prev.pdf_rev =
-                vert_light.bsdf()->pdf(BSDFContext(), si_light, wo, active_);
+            Float pdf_dir = bsdf_light->pdf(BSDFContext(), si_light, wo, active_);
+            Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_light.dist)) *
+                            dr::abs_dot(vert_light_prev.n, -si_light.to_world(wo));
+            if (s == 2)
+                vert_light_prev.pdf_rev = dr::select(is_inf_light_prev, pdf_dir, pdf_pos);
+            else
+                vert_light_prev.pdf_rev = pdf_pos;
+
             ri_light *= vert_light_prev.pdf_rev / vert_light_prev.pdf_fwd;
             sum_ri += ri_light;
             i_light--;
@@ -828,8 +843,6 @@ public:
             ri_camera *= pdf_rev / pdf_fwd;
             sum_ri += ri_camera;
         }
-        if ( i_camera > 0)
-            dr::eval(sum_ri);
 
         for (uint32_t i = i_light; i > 0; --i) {
             Vertex3f vert = verts_light[i - 1];
@@ -840,10 +853,10 @@ public:
             ri_light *= pdf_rev / pdf_fwd;
             sum_ri += ri_light;
         }
-        if ( i_light > 0 )
-            dr::eval(sum_ri);
 
-        return dr::select(active_, dr::rcp(1 + sum_ri), 0.f);
+        Float result = dr::select(active_, dr::rcp(1 + sum_ri), 0.f);
+        dr::eval(result);
+        return result;
 #endif
     }
 #elif defined(USE_MIS) // #if !defined(CONNECT) && defined(USE_MIS)
@@ -930,9 +943,7 @@ public:
         Spectrum emitter_weight = dr::zeros<Spectrum>();
         SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
 #ifdef CONNECT
-        Vertex3f vert_light = dr::zeros<Vertex3f>();
         Float pdf_fwd           = scene->pdf_emitter(emitter_idx, active);
-        Normal3f n = 0.f;
 #endif
 
         // Sample direction for infinite emitters
@@ -961,7 +972,6 @@ public:
 
 #ifdef CONNECT
             pdf_fwd *= dr::select(!is_infinite, ps.pdf , 1.f);
-            n = ps.n;
 #endif
 
             emitter_weight[!is_infinite] = pos_weight;
@@ -976,17 +986,20 @@ public:
         auto [sensor_ds, sensor_weight] = sensor->sample_direction(si, aperture_sample, active);
         active &= sensor_ds.pdf > 0.f;
         si.wi = sensor_ds.d;
+        si.wi = dr::select(is_infinite, si.wi, si.to_local(si.wi));
         si.shape = emitter->shape();
 
 #ifdef CONNECT
-        Vertex3f vert = dr::zeros<Vertex3f>();
-        vert.pdf_fwd = pdf_fwd;
-        Ray3f ray(sensor_ds.p, -sensor_ds.d);
-        Float pdf_rev = 0.f;
-        std::tie(_, pdf_rev) = sensor->pdf_ray(ray, sensor_ds, active);
-        pdf_rev *= dr::select(is_infinite, 1.f, dr::rcp(dr::sqr(sensor_ds.dist)) * dr::abs_dot(n, sensor_ds.d));
-        vert.pdf_rev = pdf_rev;
-        Float weight_mis = mis_weight(nullptr, nullptr, 0, 1, vert, active);
+        Vertex3f vert_camera(Ray3f(sensor_ds.p, -sensor_ds.d), 0.f);
+        Vertex3f vert_light(Ray3f(si.p, sensor_ds.d),
+                            PositionSample3f(si),
+                            emitter,
+                            pdf_fwd,
+                            0.f);
+        Float weight_mis = mis_weight(scene, sensor,
+                                      nullptr, nullptr, 0, 1,
+                                      vert_camera, vert_light,
+                                      active);
 #else
         Float weight_mis = 1.f;
 #endif
