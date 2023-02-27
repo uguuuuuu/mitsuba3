@@ -238,14 +238,6 @@ public:
         return { ray, wav_weight };
     }
 
-    std::pair<Float, Float> pdf_ray(const Ray3f &ray,
-                                    const PositionSample3f &,
-                                    Mask active) const override {
-        Vector3f local_d = m_to_world.value().inverse() * ray.d;
-        return { dr::select(active, 1.f, 0.f),
-                 dr::select(active, importance(local_d), 0.f) };
-    }
-
     std::pair<RayDifferential3f, Spectrum>
     sample_ray_differential(Float time, Float wavelength_sample, const Point2f &position_sample,
                             const Point2f & /*aperture_sample*/, Mask active) const override {
@@ -291,7 +283,14 @@ public:
         return { ray, wav_weight };
     }
 
-
+    std::pair<Float, Float> pdf_ray(const Ray3f &ray,
+                                    const PositionSample3f &,
+                                    Mask active) const override {
+        Transform4f trafo = m_to_world.value();
+        Vector3f local_d = trafo.inverse().transform_affine(ray.d);
+        return { dr::select(active, 1.f, 0.f),
+                 dr::select(active, importance(local_d), 0.f) };
+    }
 
     std::pair<DirectionSample3f, Spectrum>
     sample_direction(const Interaction3f &it, const Point2f & /*sample*/,
@@ -394,7 +393,11 @@ public:
 
         /* Check if the point lies to the front and inside the
            chosen crop rectangle */
-        Mask valid = ct > 0 && m_image_rect.contains(p);
+//        Mask valid = ct > 0 && m_image_rect.contains(p);
+        // Crop window check sometimes wrongly classify
+        // camera rays as outside and cause bdpt to produce NaNs
+        Mask valid = ct > 0;
+        //        valid &= m_image_rect.contains(p);
 
         return dr::select(valid, m_normalization * inv_ct * inv_ct * inv_ct, 0.f);
     }

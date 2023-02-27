@@ -266,7 +266,7 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
     explicit SurfaceInteraction(const Vertex3f &vert)
         : Base(vert.dist, vert.time, vert.wavelengths, vert.p, vert.n, vert.J),
           shape(vert.shape), uv(vert.uv), sh_frame(vert.sh_frame), dp_du(0), dp_dv(0),
-          dn_du(0), dn_dv(0), duv_dx(0), duv_dy(0), wi(vert.d), prim_index(0),
+          dn_du(0), dn_dv(0), duv_dx(0), duv_dy(0), wi(vert.wi), prim_index(0),
           boundary_test(0) {}
 
     /// Initialize local shading frame using Gram-schmidt orthogonalization

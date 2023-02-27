@@ -134,8 +134,6 @@ public:
         NotImplementedError("sample");
     }
 
-    // TODO: When `max_depth` equals one, rendered image is off a little bit than
-    // the references
     // TODO: Doesn't perform correctly when `m_hide_emitters` is true
     // TODO: Can we still use wavefront-style recorded loop instead of for-loop?
     // TODO: Take care of scalar mode
@@ -426,6 +424,7 @@ public:
         // since we don't need to store the sensor
         if (bsdf_ctx.mode == TransportMode::Radiance) {
             Mask active_next = active;
+            active_next &= pdf_fwd > 0.f;
             active_next &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
             active_next &= !dr::eq(prev_vert.dist, dr::Infinity<Float>);
             SurfaceInteraction3f si = scene->ray_intersect(ray, active_next);
@@ -465,7 +464,8 @@ public:
         for (uint32_t i = 0; i < max_depth; i++) {
             Mask is_inf = dr::eq(prev_vert.dist, dr::Infinity<Float>);
             Mask not_zero = dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
-            Mask active_next = active && !is_inf && not_zero && ((n_verts + 1) < max_depth);
+            Mask active_next = active && pdf_fwd > 0.f && !is_inf && not_zero
+                               && (n_verts < (max_depth - 1));
 
             // Find next vertex
             SurfaceInteraction3f si =
@@ -557,6 +557,7 @@ public:
                                  Mask active) const {
         auto [pdf_pos, pdf_dir] = sensor->pdf_ray(ray, dr::zeros<PositionSample3f>(), active);
         Vertex3f vert(ray, pdf_pos);
+        active &= pdf_pos > 0.f;
 
         return random_walk(BSDFContext(), scene, sampler, m_max_depth + 1,
                            vertices, ray, vert, 1.f, pdf_dir, active);
@@ -607,6 +608,7 @@ public:
         active &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
         Float pdf_fwd = pdf * pdf_emitter;
         Vertex3f vert(ray, ps, emitter, pdf_fwd, throughput);
+        active &= pdf_fwd > 0.f;
 
         throughput = emitter_idx_weight * ray_weight;
         pdf_fwd = dr::select(is_inf, pdf_pos, pdf_dir);
@@ -684,9 +686,12 @@ public:
             }
         }
 
+        DRJIT_MARK_USED(scene);
+        DRJIT_MARK_USED(sensor);
         DRJIT_MARK_USED(verts_camera);
         DRJIT_MARK_USED(verts_light);
-        DRJIT_MARK_USED(vert_aux);
+        DRJIT_MARK_USED(vert_camera_);
+        DRJIT_MARK_USED(vert_light_);
         return dr::select(active_, dr::rcp(Float(n_techniques)), 0.f);
 #else
         Float sum_ri = 0.f,
@@ -855,7 +860,6 @@ public:
         }
 
         Float result = dr::select(active_, dr::rcp(1 + sum_ri), 0.f);
-        dr::eval(result);
         return result;
 #endif
     }

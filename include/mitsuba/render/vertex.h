@@ -52,7 +52,7 @@ struct Vertex {
     Float J = 1.f;
 
     /// Direction from this vertex to previous vertex in *local frame*
-    Vector3f d;
+    Vector3f wi;
 
     /// Distance from this vertex to previous vertex
     Float dist = dr::Infinity<Float>;
@@ -81,11 +81,11 @@ struct Vertex {
            Spectrum throughput)
         : p(si.p), n(si.n), sh_frame(si.sh_frame), uv(si.uv),
           time(si.time), wavelengths(si.wavelengths), pdf_fwd(0.f),
-          pdf_rev(0.f), J(si.J), d(si.wi), dist(si.t), emitter(nullptr),
+          pdf_rev(0.f), J(si.J), wi(si.wi), dist(si.t), emitter(nullptr),
           shape(si.shape), throughput(throughput) {
 
         Mask is_inf = has_flag(prev.emitter->flags(), EmitterFlags::Infinite);
-        Vector3f wi_world = si.to_world(d);
+        Vector3f wi_world = si.to_world(si.wi);
         // If previous vertex is infinite light, `pdf` is area probability density.
         // Otherwise, `pdf` is directional
         pdf_fwd = pdf * dr::abs_dot(n, wi_world) *
@@ -102,7 +102,7 @@ struct Vertex {
            Float pdf)
         : p(ray.o), n(0.f), sh_frame(n), uv(0.f),
           time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
-          pdf_rev(0.f), J(1.f), d(0.f), dist(0.f),
+          pdf_rev(0.f), J(1.f), wi(0.f), dist(0.f),
           emitter(nullptr), shape(nullptr), throughput(1.f) {}
 
     /// Create a vertex from an emitter ray
@@ -113,7 +113,7 @@ struct Vertex {
            Spectrum throughput)
         : p(ray.o), n(ps.n), sh_frame(ps.n), uv(ps.uv),
           time(ray.time), wavelengths(ray.wavelengths), pdf_fwd(pdf),
-          pdf_rev(0.f), J(ps.J), d(0.f), dist(0.f),
+          pdf_rev(0.f), J(ps.J), wi(0.f), dist(0.f),
           emitter(emitter), shape(emitter->shape()), throughput(throughput) {}
 
     void zero_(size_t size = 1) {
@@ -141,7 +141,7 @@ struct Vertex {
     // =============================================================
 
     DRJIT_STRUCT(Vertex, p, n, sh_frame, uv, time, wavelengths,
-                 pdf_fwd, pdf_rev, J, d, dist, emitter,
+                 pdf_fwd, pdf_rev, J, wi, dist, emitter,
                  shape, throughput);
 };
 
