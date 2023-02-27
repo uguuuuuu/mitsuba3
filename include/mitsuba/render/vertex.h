@@ -85,9 +85,10 @@ struct Vertex {
           shape(si.shape), throughput(throughput) {
 
         Mask is_inf = has_flag(prev.emitter->flags(), EmitterFlags::Infinite);
+        Vector3f wi_world = si.to_world(d);
         // If previous vertex is infinite light, `pdf` is area probability density.
         // Otherwise, `pdf` is directional
-        pdf_fwd = pdf * dr::abs_dot(n, si.wi) *
+        pdf_fwd = pdf * dr::abs_dot(n, wi_world) *
                   dr::select(is_inf, 1.f, dr::rcp(dr::sqr(dist)));
         // If current vertex is infinite light, `pdf_fwd` stores directional probability density,
         // Otherwise, `pdf_fwd` stores surface area probability density
