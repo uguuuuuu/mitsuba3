@@ -263,7 +263,7 @@ public:
             Vertex3f vert_light = verts_light[s - 1];
             SurfaceInteraction3f si(vert_light);
             Mask active_s = active && (s - 1) < n_light_verts;
-            active_s &= vert_light.is_connectible();
+            active_s &= !vert_light.is_delta();
 
             // Sample a point on sensor aperture
             Point2f aperture_sample;
@@ -349,7 +349,7 @@ public:
             for (uint32_t s = 2; s < m_max_depth + 1 - t; s++) {
                 Vertex3f vert_light = verts_light[s - 1];
                 Mask active_s = active_t && (s - 1) < n_light_verts;
-                active_s &= vert_light.is_connectible();
+                active_s &= !vert_light.is_delta();
 
                 Float weight_mis = mis_weight(scene, sensor,
                                               verts_camera.get(), verts_light.get(),
@@ -659,7 +659,7 @@ public:
 #endif
 
 #ifdef CONNECT
-    // TODO: Delta vertices ignored for now
+    // TODO: Delta lights ignored for now
     Float mis_weight(const Scene *scene,
                      const Sensor *sensor,
                      const Vertex3f *verts_camera,
@@ -716,6 +716,11 @@ public:
               ray_light(vert_light.p, light_to_cam);
         BSDFPtr bsdf_camera = vert_camera.bsdf(),
                 bsdf_light  = vert_light.bsdf();
+        Mask prev_delta_camera = false,
+             prev_delta_light  = false;
+
+        // Map zero-valued PDFs (indicating delta vertices) to one
+        auto remap0 = [](Float f) -> Float { return dr::select(f > 0.f, f, 1.f); };
 
 
         // When light subpath is a complete path
@@ -728,7 +733,7 @@ public:
             else
                 vert_light.pdf_rev = pdf_pos;
 
-            ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            ri_light *= vert_light.pdf_rev / remap0(vert_light.pdf_fwd);
             sum_ri += ri_light;
             i_light--;
         }
@@ -740,7 +745,7 @@ public:
             Float pdf_pos = pdf_dir * inv_dist2 * dr::abs_dot(vert_light.n, light_to_cam);
             vert_light.pdf_rev = dr::select(is_inf_light, pdf_dir, pdf_pos);
 
-            ri_camera *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            ri_camera *= vert_light.pdf_rev / remap0(vert_light.pdf_fwd);
             sum_ri += ri_camera;
             i_camera--;
         }
@@ -777,10 +782,10 @@ public:
                     dr::abs_dot(vert_camera.n, cam_to_light) * inv_dist2;
             }
 
-            ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
+            ri_camera *= vert_camera.pdf_rev / remap0(vert_camera.pdf_fwd);
             sum_ri += ri_camera;
             i_camera--;
-            ri_light *= vert_light.pdf_rev / vert_light.pdf_fwd;
+            ri_light *= vert_light.pdf_rev / remap0(vert_light.pdf_fwd);
             sum_ri += ri_light;
             i_light--;
         }
@@ -790,6 +795,7 @@ public:
         // we have to correct the reverse PDF
         // of the second last camera vertex
         if (t > 1) {
+            Mask curr_delta_camera = false;
             // When the camera subpath is a complete path (as implied by s == 0),
             // the second last camera vertex's reverse PDF
             // is based off of emitter ray's directional PDF for area lights.
@@ -800,7 +806,8 @@ public:
                     vert_light.emitter->pdf_ray(ray_light, ps_light, active_ && !is_inf_light);
                 Float pdf_pos = pdf_dir * inv_dist2 * dr::abs_dot(vert_camera.n, cam_to_light);
                 vert_camera.pdf_rev = dr::select(is_inf_light, vert_camera.pdf_rev, pdf_pos);
-                ri_camera *= vert_camera.pdf_rev / vert_camera.pdf_fwd;
+                ri_camera *= vert_camera.pdf_rev / remap0(vert_camera.pdf_fwd);
+                curr_delta_camera = vert_camera.is_delta();
             }
             // Otherwise the second last camera vertex's reverse PDF
             // is based off of BSDF sampling
@@ -812,10 +819,12 @@ public:
                                                  si_camera, wo, active_);
                 Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_camera.dist)) * dr::abs_dot(vert_camera_prev.n, -si_camera.to_world(wo));
                 vert_camera_prev.pdf_rev = pdf_pos;
-                ri_camera *= vert_camera_prev.pdf_rev / vert_camera_prev.pdf_fwd;
+                ri_camera *= vert_camera_prev.pdf_rev / remap0(vert_camera_prev.pdf_fwd);
+                curr_delta_camera = vert_camera_prev.is_delta();
             }
-            sum_ri += ri_camera;
+            sum_ri += dr::select(curr_delta_camera, 0.f, ri_camera);
             i_camera--;
+            prev_delta_camera = curr_delta_camera;
         }
         // If there are more than 1 light vertex,
         // we have to correct the reverse PDF
@@ -823,6 +832,7 @@ public:
         if (s > 1) {
             Vertex3f vert_light_prev = verts_light[s - 2];
             Mask is_inf_light_prev = has_flag(vert_light_prev.emitter->flags(), EmitterFlags::Infinite);
+            Mask curr_delta_light = vert_light_prev.is_delta();
 
             Vector3f wo = si_light.wi;
             si_light.wi       = si_light.to_local(light_to_cam);
@@ -834,29 +844,32 @@ public:
             else
                 vert_light_prev.pdf_rev = pdf_pos;
 
-            ri_light *= vert_light_prev.pdf_rev / vert_light_prev.pdf_fwd;
-            sum_ri += ri_light;
+            ri_light *= vert_light_prev.pdf_rev / remap0(vert_light_prev.pdf_fwd);
+            sum_ri += dr::select(curr_delta_light, 0.f, ri_light);
             i_light--;
+            prev_delta_light = curr_delta_light;
         }
 
         for (uint32_t i = i_camera; i > 0; --i) {
             Vertex3f vert = verts_camera[i - 1];
-            Float pdf_fwd = dr::select(dr::eq(vert.pdf_fwd, 0.f),
-                                       1.f, vert.pdf_fwd);
-            Float pdf_rev = dr::select(dr::eq(vert.pdf_rev, 0.f),
-                                       1.f, vert.pdf_rev);
-            ri_camera *= pdf_rev / pdf_fwd;
-            sum_ri += ri_camera;
+            Mask curr_delta = vert.is_delta();
+
+            ri_camera *= remap0(vert.pdf_rev) / remap0(vert.pdf_fwd);
+            sum_ri += dr::select(prev_delta_camera || curr_delta,
+                                 0.f,
+                                 ri_camera);
+            prev_delta_camera = curr_delta;
         }
 
         for (uint32_t i = i_light; i > 0; --i) {
             Vertex3f vert = verts_light[i - 1];
-            Float pdf_fwd = dr::select(dr::eq(vert.pdf_fwd, 0.f),
-                                       1.f, vert.pdf_fwd);
-            Float pdf_rev = dr::select(dr::eq(vert.pdf_rev, 0.f),
-                                       1.f, vert.pdf_rev);
-            ri_light *= pdf_rev / pdf_fwd;
-            sum_ri += ri_light;
+            Mask curr_delta = vert.is_delta();
+
+            ri_light *= remap0(vert.pdf_rev) / remap0(vert.pdf_fwd);
+            sum_ri += dr::select(prev_delta_light || curr_delta,
+                                 0.f,
+                                 ri_light);
+            prev_delta_light = curr_delta;
         }
 
         Float result = dr::select(active_, dr::rcp(1 + sum_ri), 0.f);
