@@ -1,7 +1,21 @@
 import subprocess
 from glob import glob
+import argparse
+import os
 
-subprocess.run(['rm', 'docstr.h'])
+parser = argparse.ArgumentParser(
+    prog='docstr',
+    description='Generate documentation strings header using pybind11_mkdoc',
+    allow_abbrev=False
+)
+parser.add_argument('-d', '--outdir', action='store', type=str, dest='outdir', metavar='<directory>',
+                    help='Write to the specified directory')
+
+[parsed_args, unparsed_args] = parser.parse_known_args()
+outdir = parsed_args.outdir
+if outdir is None:
+    outdir = "include/mitsuba/python"
+outfile = os.path.join(outdir, 'docstr.h')
 
 file_list  = glob("include/mitsuba/core/**/*.h", recursive=True)
 file_list += glob("include/mitsuba/render/**/*.h", recursive=True)
@@ -10,7 +24,7 @@ file_list.remove("include/mitsuba/core/fwd.h")
 file_list.remove("include/mitsuba/render/fwd.h")
 file_list.remove("include/mitsuba/ui/fwd.h")
 
-args = ['pybind11-mkdoc', '-o', 'docstr.h',
+args = ['pybind11-mkdoc', '-o', outfile,
         # include directories 
         '-I', 'include', '-I', 'build/include', 
         '-I', 'ext/drjit/include', '-I', 'ext/drjit/ext/drjit-core/include',

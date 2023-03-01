@@ -14,6 +14,21 @@ MI_PY_EXPORT(Endpoint) {
         .def("sample_ray", &Endpoint::sample_ray,
             "time"_a, "sample1"_a, "sample2"_a, "sample3"_a, "active"_a = true,
             D(Endpoint, sample_ray))
+        .def("sample_ray_1", &Endpoint::sample_ray_1,
+             "time"_a, "wavelengths"_a, "sample2"_a, "sample3"_a, "active"_a = true,
+             D(Endpoint, sample_ray_1))
+        .def("sample_ray_3", &Endpoint::sample_ray_3,
+             "time"_a, "sample1"_a, "sample2"_a, "ps"_a, "active"_a = true,
+             D(Endpoint, sample_ray_3))
+        .def("sample_ray_13", &Endpoint::sample_ray_13,
+             "time"_a, "wavelengths"_a, "sample2"_a, "ps"_a, "active"_a = true,
+             D(Endpoint, sample_ray_13))
+        .def("pdf_ray", &Endpoint::pdf_ray,
+             "ray"_a, "ps"_a, "active"_a = true,
+             D(Endpoint, pdf_ray))
+        .def("pdf_sample_ray", &Endpoint::pdf_sample_ray,
+             "time"_a, "wavelengths"_a, "sample2"_a, "sample3"_a, "active"_a = true,
+             D(Endpoint, pdf_sample_ray))
         .def("sample_direction", &Endpoint::sample_direction,
              "it"_a, "sample"_a, "active"_a = true, D(Endpoint, sample_direction))
         .def("pdf_direction", &Endpoint::pdf_direction,
@@ -28,6 +43,8 @@ MI_PY_EXPORT(Endpoint) {
              "si"_a, "active"_a = true, D(Endpoint, eval))
         .def("sample_wavelengths", &Endpoint::sample_wavelengths,
              "si"_a, "sample"_a, "active"_a = true, D(Endpoint, sample_wavelengths))
+        .def("pdf_wavelengths", &Endpoint::pdf_wavelengths,
+             "wavelengths"_a, "active"_a = true, D(Endpoint, pdf_wavelengths))
         .def_method(Endpoint, world_transform)
         .def_method(Endpoint, needs_sample_2)
         .def_method(Endpoint, needs_sample_3)
