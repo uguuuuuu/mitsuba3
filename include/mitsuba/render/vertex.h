@@ -5,6 +5,8 @@
 #include <mitsuba/core/ray.h>
 #include <mitsuba/core/spectrum.h>
 #include <mitsuba/render/fwd.h>
+#include <mitsuba/render/emitter.h>
+#include <mitsuba/render/bsdf.h>
 
 NAMESPACE_BEGIN(mitsuba)
 

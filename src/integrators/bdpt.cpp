@@ -14,6 +14,8 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
+// TODO: Expose BDPT-related functions and structs to Python
+
 template <typename Float, typename Spectrum>
 class BDPTIntegrator : public MonteCarloIntegrator<Float, Spectrum> {
 public:
