@@ -56,6 +56,7 @@ enum class RayFlags : uint32_t {
     /// Derivatives of the SurfaceInteraction fields ignore shape's motion
     DetachShape = 0x100,
 
+    /// Jacobian of surface motion as in path-space differentiable rendering
     Jacobian = 0x200,
 
     // =============================================================
@@ -264,10 +265,9 @@ struct SurfaceInteraction : Interaction<Float_, Spectrum_> {
      * Construct from a path vertex.
      */
     explicit SurfaceInteraction(const Vertex3f &vert)
-        : Base(vert.dist, vert.time, vert.wavelengths, vert.p, vert.n, vert.J),
-          shape(vert.shape), uv(vert.uv), sh_frame(vert.sh_frame), dp_du(0), dp_dv(0),
-          dn_du(0), dn_dv(0), duv_dx(0), duv_dy(0), wi(vert.wi), prim_index(0),
-          boundary_test(0) {}
+        : Base(vert), shape(vert.shape), uv(vert.uv), sh_frame(vert.sh_frame),
+          dp_du(0), dp_dv(0), dn_du(0), dn_dv(0), duv_dx(0), duv_dy(0),
+          wi(vert.wi), prim_index(0), boundary_test(0) {}
 
     /// Initialize local shading frame using Gram-schmidt orthogonalization
     void initialize_sh_frame() {
@@ -704,6 +704,126 @@ struct PreliminaryIntersection {
 
     DRJIT_STRUCT(PreliminaryIntersection, t, prim_uv, prim_index, shape_index,
                  shape, instance);
+};
+
+// TODO: UV partials
+// TODO: Which criterion should we use to determine whether delta or not,
+//  having a delta component or having no smooth components?
+
+template<typename Float_, typename Spectrum_>
+struct Vertex : Interaction<Float_, Spectrum_> {
+    // =============================================================
+    //! @{ \name Type declarations
+    // =============================================================
+
+    using Float = Float_;
+    using Spectrum = Spectrum_;
+
+    MI_IMPORT_BASE(Interaction, t, time, wavelengths, p, n, J, is_valid)
+
+    MI_IMPORT_RENDER_BASIC_TYPES()
+    MI_IMPORT_OBJECT_TYPES()
+
+    using SurfaceInteraction3f = typename RenderAliases::SurfaceInteraction3f;
+    using PositionSample3f = typename RenderAliases::PositionSample3f;
+
+    //! @}
+    // =============================================================
+
+    // =============================================================
+    //! @{ \name Fields
+    // =============================================================
+
+    ShapePtr shape = nullptr;
+
+    EmitterPtr emitter = nullptr;
+
+    Point2f uv;
+
+    Frame3f sh_frame;
+
+    /// Incident direction in the local shading frame
+    Vector3f wi;
+
+    /// Actual PDF used to sample this vertex
+    Float pdf_fwd = 0.f;
+
+    /// Hypothetic PDF if the path was the reverse
+    Float pdf_rev = 0.f;
+
+    /// Throughput of the path up untill this vertex
+    Spectrum throughput = 0.f;
+
+    //! @}
+    // =============================================================
+
+    // =============================================================
+    //! @{ \name Methods
+    // =============================================================
+
+    /**
+     * \brief Create a vertex from a surface interaction
+     *
+     * Used to create intermediate vertices
+     */
+    Vertex(const Vertex &prev,
+           const SurfaceInteraction3f &si,
+           Float pdf,
+           Spectrum throughput)
+        : Base(si), shape(si.shape), emitter(nullptr), uv(si.uv),
+          sh_frame(si.sh_frame), wi(si.wi), pdf_fwd(0.f), pdf_rev(0.f),
+          throughput(throughput) {
+
+        Mask is_inf = prev.emitter->is_infinite();
+        Vector3f wi_world = si.to_world(si.wi);
+        // If previous vertex is infinite light, `pdf` is area probability density.
+        // Otherwise, `pdf` is directional
+        pdf_fwd = pdf * dr::abs_dot(n, wi_world) *
+                  dr::select(is_inf, 1.f, dr::rcp(dr::sqr(t)));
+        // If current vertex is infinite light, `pdf_fwd` stores directional probability density,
+        // Otherwise, `pdf_fwd` stores surface area probability density
+        pdf_fwd = dr::select(is_valid(),
+                             pdf_fwd,
+                             pdf);
+    }
+
+    /// Create a vertex from a sensor ray
+    Vertex(const Ray3f &ray,
+           Float pdf)
+        : Base(0.f, ray.time, ray.wavelengths, ray.o, 0.f, 1.f),
+          shape(nullptr), emitter(nullptr), uv(0.f), sh_frame(n),
+          wi(0.f), pdf_fwd(pdf), pdf_rev(0.f), throughput(1.f) {}
+
+    /// Create a vertex from an emitter ray
+    Vertex(const Ray3f &ray,
+           const PositionSample3f &ps,
+           EmitterPtr emitter,
+           Float pdf,
+           Spectrum throughput)
+        : Base(0.f, ray.time, ray.wavelengths, ray.o, ps.n, ps.J),
+          shape(emitter->shape()), emitter(emitter), uv(ps.uv),
+          sh_frame(Frame3f(ps.n)), wi(0.f), pdf_fwd(pdf), pdf_rev(0.f),
+          throughput(throughput) {}
+
+    BSDFPtr bsdf() const { return shape->bsdf(); }
+
+    Mask is_delta() const {
+        return bsdf()->is_delta();
+    };
+
+    Mask is_delta_light() const {
+        return emitter->is_delta();
+    }
+
+    Mask is_connectible() const {
+        return is_valid() && !is_delta();
+    }
+
+    //! @}
+    // =============================================================
+
+    DRJIT_STRUCT(Vertex, t, time, wavelengths, p, n, J, shape, emitter,
+                 uv, sh_frame, wi, pdf_fwd, pdf_rev, throughput);
 };
 
 // -----------------------------------------------------------------------------

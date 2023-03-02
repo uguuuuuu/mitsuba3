@@ -6,7 +6,6 @@
 #include <mitsuba/render/bsdf.h>
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/integrator.h>
-#include <mitsuba/render/vertex.h>
 #include <mitsuba/render/records.h>
 
 #define USE_MIS
@@ -428,7 +427,7 @@ public:
             Mask active_next = active;
             active_next &= pdf_fwd > 0.f;
             active_next &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
-            active_next &= !dr::eq(prev_vert.dist, dr::Infinity<Float>);
+            active_next &= !dr::eq(prev_vert.t, dr::Infinity<Float>);
             SurfaceInteraction3f si = scene->ray_intersect(ray, active_next);
             if (!(bsdf_ctx.mode == TransportMode::Radiance && scene->environment() && !m_hide_emitters)) {
                 active_next &= si.is_valid();
@@ -464,7 +463,7 @@ public:
 
         // Collect vertices
         for (uint32_t i = 0; i < max_depth; i++) {
-            Mask is_inf = dr::eq(prev_vert.dist, dr::Infinity<Float>);
+            Mask is_inf = dr::eq(prev_vert.t, dr::Infinity<Float>);
             Mask not_zero = dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
             Mask active_next = active && pdf_fwd > 0.f && !is_inf && not_zero
                                && (n_verts < (max_depth - 1));
@@ -819,7 +818,7 @@ public:
                 si_camera.wi              = si_camera.to_local(cam_to_light);
                 Float pdf_dir = bsdf_camera->pdf(BSDFContext(TransportMode::Importance),
                                                  si_camera, wo, active_);
-                Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_camera.dist)) * dr::abs_dot(vert_camera_prev.n, -si_camera.to_world(wo));
+                Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_camera.t)) * dr::abs_dot(vert_camera_prev.n, -si_camera.to_world(wo));
                 vert_camera_prev.pdf_rev = pdf_pos;
                 ri_camera *= vert_camera_prev.pdf_rev / remap0(vert_camera_prev.pdf_fwd);
                 curr_delta_camera = vert_camera_prev.is_delta();
@@ -839,7 +838,7 @@ public:
             Vector3f wo = si_light.wi;
             si_light.wi       = si_light.to_local(light_to_cam);
             Float pdf_dir = bsdf_light->pdf(BSDFContext(), si_light, wo, active_);
-            Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_light.dist)) *
+            Float pdf_pos = pdf_dir * dr::rcp(dr::sqr(vert_light.t)) *
                             dr::abs_dot(vert_light_prev.n, -si_light.to_world(wo));
             if (s == 2)
                 vert_light_prev.pdf_rev = dr::select(is_inf_light_prev, pdf_dir, pdf_pos);

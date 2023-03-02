@@ -836,6 +836,8 @@ static const char *__doc_mitsuba_BSDF_flags_2 = R"doc(Flags for a specific compo
 
 static const char *__doc_mitsuba_BSDF_id = R"doc(Return a string identifier)doc";
 
+static const char *__doc_mitsuba_BSDF_is_delta = R"doc(@{ \name BSDF property accessors (components, flags, etc))doc";
+
 static const char *__doc_mitsuba_BSDF_m_components = R"doc(Flags for each component of this BSDF.)doc";
 
 static const char *__doc_mitsuba_BSDF_m_flags = R"doc(Combined flags for all components of this BSDF.)doc";
@@ -2293,7 +2295,11 @@ static const char *__doc_mitsuba_Emitter_class = R"doc()doc";
 
 static const char *__doc_mitsuba_Emitter_flags = R"doc(Flags for all components combined.)doc";
 
+static const char *__doc_mitsuba_Emitter_is_delta = R"doc()doc";
+
 static const char *__doc_mitsuba_Emitter_is_environment = R"doc(Is this an environment map light emitter?)doc";
+
+static const char *__doc_mitsuba_Emitter_is_infinite = R"doc()doc";
 
 static const char *__doc_mitsuba_Emitter_m_flags = R"doc(Combined flags for all properties of this emitter.)doc";
 
@@ -5968,7 +5974,7 @@ static const char *__doc_mitsuba_RayFlags_Empty = R"doc(No flags set)doc";
 
 static const char *__doc_mitsuba_RayFlags_FollowShape = R"doc(Derivatives of the SurfaceInteraction fields follow shape's motion)doc";
 
-static const char *__doc_mitsuba_RayFlags_Jacobian = R"doc(Derivatives of the SurfaceInteraction fields ignore shape's motion)doc";
+static const char *__doc_mitsuba_RayFlags_Jacobian = R"doc(Jacobian of surface motion as in path-space differentiable rendering)doc";
 
 static const char *__doc_mitsuba_RayFlags_Minimal = R"doc(Compute position and geometric normal)doc";
 
@@ -9279,8 +9285,6 @@ static const char *__doc_mitsuba_Vector_operator_assign_2 = R"doc()doc";
 
 static const char *__doc_mitsuba_Vertex = R"doc()doc";
 
-static const char *__doc_mitsuba_Vertex_J = R"doc()doc";
-
 static const char *__doc_mitsuba_Vertex_Vertex =
 R"doc(Create a vertex from a surface interaction
 
@@ -9310,8 +9314,6 @@ static const char *__doc_mitsuba_Vertex_apply_label = R"doc()doc";
 
 static const char *__doc_mitsuba_Vertex_bsdf = R"doc()doc";
 
-static const char *__doc_mitsuba_Vertex_dist = R"doc(Distance from this vertex to previous vertex)doc";
-
 static const char *__doc_mitsuba_Vertex_emitter = R"doc()doc";
 
 static const char *__doc_mitsuba_Vertex_is_connectible = R"doc()doc";
@@ -9319,8 +9321,6 @@ static const char *__doc_mitsuba_Vertex_is_connectible = R"doc()doc";
 static const char *__doc_mitsuba_Vertex_is_delta = R"doc()doc";
 
 static const char *__doc_mitsuba_Vertex_is_delta_light = R"doc()doc";
-
-static const char *__doc_mitsuba_Vertex_n = R"doc()doc";
 
 static const char *__doc_mitsuba_Vertex_operator_array = R"doc()doc";
 
@@ -9332,27 +9332,19 @@ static const char *__doc_mitsuba_Vertex_operator_assign_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Vertex_operator_assign_4 = R"doc()doc";
 
-static const char *__doc_mitsuba_Vertex_p = R"doc(@{ \name Fields)doc";
+static const char *__doc_mitsuba_Vertex_pdf_fwd = R"doc(Actual PDF used to sample this vertex)doc";
 
-static const char *__doc_mitsuba_Vertex_pdf_fwd = R"doc()doc";
-
-static const char *__doc_mitsuba_Vertex_pdf_rev = R"doc()doc";
+static const char *__doc_mitsuba_Vertex_pdf_rev = R"doc(Hypothetic PDF if the path was the reverse)doc";
 
 static const char *__doc_mitsuba_Vertex_sh_frame = R"doc()doc";
 
-static const char *__doc_mitsuba_Vertex_shape = R"doc()doc";
+static const char *__doc_mitsuba_Vertex_shape = R"doc(@{ \name Fields)doc";
 
-static const char *__doc_mitsuba_Vertex_throughput = R"doc()doc";
-
-static const char *__doc_mitsuba_Vertex_time = R"doc()doc";
+static const char *__doc_mitsuba_Vertex_throughput = R"doc(Throughput of the path up untill this vertex)doc";
 
 static const char *__doc_mitsuba_Vertex_uv = R"doc()doc";
 
-static const char *__doc_mitsuba_Vertex_wavelengths = R"doc()doc";
-
-static const char *__doc_mitsuba_Vertex_wi = R"doc(Direction from this vertex to previous vertex in *local frame*)doc";
-
-static const char *__doc_mitsuba_Vertex_zero = R"doc()doc";
+static const char *__doc_mitsuba_Vertex_wi = R"doc(Incident direction in the local shading frame)doc";
 
 static const char *__doc_mitsuba_Volume = R"doc(Abstract base class for 3D volumes.)doc";
 

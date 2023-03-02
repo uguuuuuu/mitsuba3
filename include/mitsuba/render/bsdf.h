@@ -477,6 +477,10 @@ public:
     //! @{ \name BSDF property accessors (components, flags, etc)
     // -----------------------------------------------------------------------
 
+    bool is_delta() const {
+        return has_flag(m_flags, BSDFFlags::Delta);
+    }
+
     /// Flags for all components combined.
     uint32_t flags(Mask /*active*/ = true) const { return m_flags; }
 
@@ -600,6 +604,7 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::BSDF)
     DRJIT_VCALL_METHOD(eval_pdf)
     DRJIT_VCALL_METHOD(eval_pdf_sample)
     DRJIT_VCALL_METHOD(eval_diffuse_reflectance)
+    DRJIT_VCALL_METHOD(is_delta)
     DRJIT_VCALL_GETTER(flags, uint32_t)
     auto needs_differentials() const {
         return has_flag(flags(), mitsuba::BSDFFlags::NeedsDifferentials);

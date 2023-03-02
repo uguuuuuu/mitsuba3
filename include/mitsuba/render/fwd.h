@@ -42,7 +42,6 @@ template <typename Float, typename Spectrum> struct Interaction;
 template <typename Float, typename Spectrum> struct MediumInteraction;
 template <typename Float, typename Spectrum> struct SurfaceInteraction;
 template <typename Float, typename Shape>    struct PreliminaryIntersection;
-
 template <typename Float, typename Spectrum> struct Vertex;
 
 

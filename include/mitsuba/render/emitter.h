@@ -60,6 +60,14 @@ public:
                !has_flag(m_flags, EmitterFlags::Delta);
     }
 
+    bool is_infinite() const {
+        return has_flag(m_flags, EmitterFlags::Infinite);
+    }
+
+    bool is_delta() const {
+        return has_flag(m_flags, EmitterFlags::Delta);
+    }
+
     /// Flags for all components combined.
     uint32_t flags(dr::mask_t<Float> /*active*/ = true) const { return m_flags; }
 
@@ -98,6 +106,8 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Emitter)
     DRJIT_VCALL_METHOD(eval)
     DRJIT_VCALL_METHOD(sample_wavelengths)
     DRJIT_VCALL_METHOD(is_environment)
+    DRJIT_VCALL_METHOD(is_infinite)
+    DRJIT_VCALL_METHOD(is_delta)
     DRJIT_VCALL_GETTER(flags, uint32_t)
     DRJIT_VCALL_GETTER(shape, const typename Class::Shape *)
     DRJIT_VCALL_GETTER(medium, const typename Class::Medium *)
