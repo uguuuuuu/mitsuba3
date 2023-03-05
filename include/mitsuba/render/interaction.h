@@ -710,6 +710,7 @@ struct PreliminaryIntersection {
 // TODO: Which criterion should we use to determine whether delta or not,
 //  having a delta component or having no smooth components?
 
+/// Stores information needed by bidirectional path tracing
 template<typename Float_, typename Spectrum_>
 struct Vertex : Interaction<Float_, Spectrum_> {
     // =============================================================
@@ -837,7 +838,9 @@ std::ostream &operator<<(std::ostream &os, const Interaction<Float, Spectrum> &i
            << "  t = " << it.t << "," << std::endl
            << "  time = " << it.time << "," << std::endl
            << "  wavelengths = " << it.wavelengths << "," << std::endl
-           << "  p = " << string::indent(it.p, 6) << std::endl
+           << "  p = " << string::indent(it.p, 6) << "," << std::endl
+           << "  n = " << it.n << "," << std::endl
+           << "  J = " << it.J << std::endl
            << "]";
     }
     return os;
@@ -907,6 +910,31 @@ std::ostream &operator<<(std::ostream &os, const PreliminaryIntersection<Float, 
            << "  shape_index = " << pi.shape_index << "," << std::endl
            << "  shape = " << string::indent(pi.shape, 6) << "," << std::endl
            << "  instance = " << string::indent(pi.instance, 6) << "," << std::endl
+           << "]";
+    }
+    return os;
+}
+
+template <typename Float, typename Spectrum>
+std::ostream &operator<<(std::ostream &os, const Vertex<Float, Spectrum> &vert) {
+    if (dr::none(vert.is_valid())) {
+        os << "Vertex[invalid]";
+    } else {
+        os << "Vertex[" << std::endl
+           << "  t = " << vert.t << "," << std::endl
+           << "  time = " << vert.time << "," << std::endl
+           << "  wavelengths = " << string::indent(vert.wavelengths, 16) << "," << std::endl
+           << "  p = " << string::indent(vert.p, 6) << "," << std::endl
+           << "  n = " << string::indent(vert.n, 6) << "," << std::endl
+           << "  J = " << vert.J << "," << std::endl
+           << "  shape = " << string::indent(vert.shape, 2) << "," << std::endl
+           << "  emitter = " << vert.emitter << "," << std::endl
+           << "  uv = " << string::indent(vert.uv, 7) << "," << std::endl
+           << "  sh_frame = " << string::indent(vert.sh_frame, 2) << "," << std::endl
+           << "  wi = " << string::indent(vert.wi, 7) << "," << std::endl
+           << "  pdf_fwd = " << vert.pdf_fwd << "," << std::endl
+           << "  pdf_rev = " << vert.pdf_rev << "," << std::endl
+           << "  throughput = " << vert.throughput << std::endl
            << "]";
     }
     return os;

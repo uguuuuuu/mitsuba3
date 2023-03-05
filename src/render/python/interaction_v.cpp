@@ -57,6 +57,7 @@ MI_PY_EXPORT(SurfaceInteraction) {
         .def(py::init<const SurfaceInteraction3f &>(), "Copy constructor")
         .def(py::init<const PositionSample3f &, const Wavelength &>(), "ps"_a,
             "wavelengths"_a, D(SurfaceInteraction, SurfaceInteraction))
+        .def(py::init<const Vertex3f &>(), "vert"_a, D(SurfaceInteraction, SurfaceInteraction, 2))
         .def("initialize_sh_frame", &SurfaceInteraction3f::initialize_sh_frame,
             D(SurfaceInteraction, initialize_sh_frame))
         .def("to_world", &SurfaceInteraction3f::to_world, "v"_a, D(SurfaceInteraction, to_world))
@@ -153,4 +154,41 @@ MI_PY_EXPORT(PreliminaryIntersection) {
 
     MI_PY_DRJIT_STRUCT(pi, PreliminaryIntersection3f, t, prim_uv, prim_index,
                         shape_index, shape, instance);
+}
+
+MI_PY_EXPORT(Vertex) {
+    MI_PY_IMPORT_TYPES()
+    auto vert =
+        py::class_<Vertex3f, Interaction3f>(m, "Vertex3f",
+                                            D(Vertex))
+        // Members
+        .def_field(Vertex3f, shape,         D(Vertex, shape))
+        .def_field(Vertex3f, emitter,       D(Vertex, emitter))
+        .def_field(Vertex3f, uv,            D(Vertex, uv))
+        .def_field(Vertex3f, sh_frame,      D(Vertex, sh_frame))
+        .def_field(Vertex3f, wi,            D(Vertex, wi))
+        .def_field(Vertex3f, pdf_fwd,       D(Vertex, pdf_fwd))
+        .def_field(Vertex3f, pdf_rev,       D(Vertex, pdf_rev))
+        .def_field(Vertex3f, throughput,    D(Vertex, throughput))
+
+        // Methods
+        .def(py::init<>(), D(Vertex, Vertex))
+        .def(py::init<const Vertex3f &>(), "Copy constructor")
+        .def(py::init<const Vertex3f &, const SurfaceInteraction3f &,
+             Float, Spectrum>(), "prev"_a, "si"_a, "pdf"_a, "throughput"_a,
+             D(Vertex, Vertex))
+        .def(py::init<const Ray3f &, Float>(), "ray"_a, "pdf"_a,
+             D(Vertex, Vertex, 2))
+        .def(py::init<const Ray3f &, const PositionSample3f &,
+             EmitterPtr, Float, Spectrum>(), "ray"_a, "ps"_a,
+             "emitter"_a, "pdf"_a, "throughput"_a, D(Vertex, Vertex, 3))
+        .def("bsdf", &Vertex3f::bsdf, D(Vertex, bsdf))
+        .def("is_delta", &Vertex3f::is_delta, D(Vertex, is_delta))
+        .def("is_delta_light", &Vertex3f::is_delta_light, D(Vertex, is_delta_light))
+        .def("is_connectible", &Vertex3f::is_connectible, D(Vertex, is_connectible))
+        .def_repr(Vertex3f);
+
+    MI_PY_DRJIT_STRUCT(vert, Vertex3f, t, time, wavelengths, p, n, J,
+                       shape, emitter, uv, sh_frame, wi, pdf_fwd, pdf_rev,
+                       throughput)
 }

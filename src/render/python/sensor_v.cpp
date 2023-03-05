@@ -25,6 +25,44 @@ public:
                                active);
     }
 
+    std::pair<Ray3f, Spectrum>
+    sample_ray_1(Float time, const Wavelength &wavelengths, const Point2f &sample2,
+                 const Point2f &sample3, Mask active) const override {
+        using Return = std::pair<Ray3f, Spectrum>;
+        PYBIND11_OVERRIDE_PURE(Return, Sensor, sample_ray_1, time, wavelengths, sample2, sample3,
+                               active);
+    }
+
+    std::pair<Ray3f, Spectrum>
+    sample_ray_3(Float time, Float sample1, const Point2f &sample2,
+                 const PositionSample3f &ps, Mask active) const override {
+        using Return = std::pair<Ray3f, Spectrum>;
+        PYBIND11_OVERRIDE_PURE(Return, Sensor, sample_ray_3, time, sample1, sample2, ps,
+                               active);
+    }
+
+    std::pair<Ray3f, Spectrum>
+    sample_ray_13(Float time, const Wavelength &wavelengths, const Point2f &sample2,
+                  const PositionSample3f &ps, Mask active) const override {
+        using Return = std::pair<Ray3f, Spectrum>;
+        PYBIND11_OVERRIDE_PURE(Return, Sensor, sample_ray_13, time, wavelengths, sample2, ps,
+                               active);
+    }
+
+    std::pair<Float, Float>
+    pdf_ray(const Ray3f &ray, const PositionSample3f &ps, Mask active) const override {
+        using Return = std::pair<Float, Float>;
+        PYBIND11_OVERRIDE_PURE(Return, Sensor, pdf_ray, ray, ps, active);
+    }
+
+    std::tuple<PositionSample3f, Float, Ray3f, Spectrum>
+    pdf_sample_ray(Float time, const Wavelength &wavelengths, const Point2f &sample2,
+                   const Point2f &sample3, Mask active) const override {
+        using Return = std::tuple<PositionSample3f, Float, Ray3f, Spectrum>;
+        PYBIND11_OVERRIDE_PURE(Return, Sensor, pdf_sample_ray, time, wavelengths, sample2,
+                               sample3, active);
+    }
+
     std::pair<DirectionSample3f, Spectrum>
     sample_direction(const Interaction3f &ref,
                      const Point2f &sample,
@@ -87,7 +125,8 @@ MI_PY_EXPORT(Sensor) {
     MI_PY_TRAMPOLINE_CLASS(PySensor, Sensor, Endpoint)
         .def(py::init<const Properties&>())
         .def("sample_ray_differential", &Sensor::sample_ray_differential,
-            "time"_a, "sample1"_a, "sample2"_a, "sample3"_a, "active"_a = true)
+            "time"_a, "sample1"_a, "sample2"_a, "sample3"_a, "active"_a = true,
+            D(Sensor, sample_ray_differential))
         .def_method(Sensor, shutter_open)
         .def_method(Sensor, shutter_open_time)
         .def_method(Sensor, needs_aperture_sample)
@@ -120,6 +159,40 @@ MI_PY_EXPORT(Sensor) {
                 },
                 "time"_a, "sample1"_a, "sample2"_a, "sample3"_a, "active"_a = true,
                 D(Endpoint, sample_ray))
+            .def("sample_ray_differential",
+                 [](SensorPtr ptr, Float time, Float sample1, const Point2f &sample2,
+                 const Point2f &sample3, Mask active) {
+                     return ptr->sample_ray_differential(time, sample1, sample2, sample3, active);
+                 },
+                "time"_a, "sample1"_a, "sample2"_a, "sample3"_a, "active"_a = true,
+                D(Sensor, sample_ray_differential))
+            .def("sample_ray_1",
+                [](SensorPtr ptr, Float time, const Wavelength &wavelengths, const Point2f &sample2,
+                   const Point2f &sample3, Mask active) {
+                    return ptr->sample_ray_1(time, wavelengths, sample2, sample3, active);
+                },
+                "time"_a, "wavelengths"_a, "sample2"_a, "sample3"_a, "active"_a = true,
+                D(Endpoint, sample_ray_1))
+            .def("sample_ray_3",
+                [](SensorPtr ptr, Float time, Float sample1, const Point2f &sample2,
+                   const PositionSample3f &ps, Mask active) {
+                    return ptr->sample_ray_3(time, sample1, sample2, ps, active);
+                },
+                "time"_a, "sample1"_a, "sample2"_a, "ps"_a, "active"_a = true,
+                D(Endpoint, sample_ray_3))
+            .def("sample_ray_13",
+                [](SensorPtr ptr, Float time, const Wavelength &wavelengths, const Point2f &sample2,
+                   const PositionSample3f &ps, Mask active) {
+                    return ptr->sample_ray_13(time, wavelengths, sample2, ps, active);
+                },
+                "time"_a, "wavelengths"_a, "sample2"_a, "ps"_a, "active"_a = true,
+                D(Endpoint, sample_ray_13))
+            .def("pdf_ray",
+                [](SensorPtr ptr, const Ray3f &ray, const PositionSample3f &ps, Mask active) {
+                    return ptr->pdf_ray(ray, ps, active);
+                },
+                "ray"_a, "ps"_a, "active"_a = true,
+                D(Endpoint, pdf_ray))
         .def("sample_direction",
                 [](SensorPtr ptr, const Interaction3f &it, const Point2f &sample, Mask active) {
                     return ptr->sample_direction(it, sample, active);

@@ -9283,7 +9283,7 @@ static const char *__doc_mitsuba_Vector_operator_assign = R"doc()doc";
 
 static const char *__doc_mitsuba_Vector_operator_assign_2 = R"doc()doc";
 
-static const char *__doc_mitsuba_Vertex = R"doc()doc";
+static const char *__doc_mitsuba_Vertex = R"doc(Stores information needed by bidirectional path tracing)doc";
 
 static const char *__doc_mitsuba_Vertex_Vertex =
 R"doc(Create a vertex from a surface interaction
@@ -10668,6 +10668,8 @@ static const char *__doc_mitsuba_operator_lshift_27 = R"doc()doc";
 static const char *__doc_mitsuba_operator_lshift_28 = R"doc()doc";
 
 static const char *__doc_mitsuba_operator_lshift_29 = R"doc()doc";
+
+static const char *__doc_mitsuba_operator_lshift_30 = R"doc()doc";
 
 static const char *__doc_mitsuba_operator_sub = R"doc(Subtracting two points should always yield a vector)doc";
 

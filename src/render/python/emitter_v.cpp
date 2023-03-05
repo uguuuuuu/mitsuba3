@@ -122,6 +122,8 @@ MI_PY_EXPORT(Emitter) {
     MI_PY_TRAMPOLINE_CLASS(PyEmitter, Emitter, Endpoint)
         .def(py::init<const Properties&>())
         .def_method(Emitter, is_environment)
+        .def_method(Emitter, is_infinite)
+        .def_method(Emitter, is_delta)
         .def_method(Emitter, flags, "active"_a = true)
         .def_readwrite("m_needs_sample_2", &PyEmitter::m_needs_sample_2)
         .def_readwrite("m_needs_sample_3", &PyEmitter::m_needs_sample_3)
@@ -225,7 +227,13 @@ MI_PY_EXPORT(Emitter) {
         .def("shape", [](EmitterPtr ptr) { return ptr->shape(); }, D(Endpoint, shape))
         .def("is_environment",
              [](EmitterPtr ptr) { return ptr->is_environment(); },
-             D(Emitter, is_environment));
+             D(Emitter, is_environment))
+        .def("is_infinite",
+             [](EmitterPtr ptr) { return ptr->is_infinite(); },
+            D(Emitter, is_infinite))
+        .def("is_delta",
+             [](EmitterPtr ptr) { return ptr->is_delta(); },
+            D(Emitter, is_delta));
 
         bind_drjit_ptr_array(cls);
 

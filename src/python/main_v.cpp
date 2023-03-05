@@ -94,6 +94,7 @@ MI_PY_DECLARE(Interaction);
 MI_PY_DECLARE(SurfaceInteraction);
 MI_PY_DECLARE(MediumInteraction);
 MI_PY_DECLARE(PreliminaryIntersection);
+MI_PY_DECLARE(Vertex);
 MI_PY_DECLARE(Medium);
 MI_PY_DECLARE(mueller);
 MI_PY_DECLARE(MicrofacetDistribution);
@@ -184,6 +185,7 @@ PYBIND11_MODULE(MODULE_NAME, m) {
     MI_PY_IMPORT(SurfaceInteraction);
     MI_PY_IMPORT(MediumInteraction);
     MI_PY_IMPORT(PreliminaryIntersection);
+    MI_PY_IMPORT(Vertex);
     MI_PY_IMPORT(PositionSample);
     MI_PY_IMPORT(DirectionSample);
     MI_PY_IMPORT(BSDFSample);

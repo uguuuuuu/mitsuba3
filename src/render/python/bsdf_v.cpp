@@ -112,6 +112,7 @@ template <typename Ptr, typename Cls> void bind_bsdf_generic(Cls &cls) {
              [](Ptr bsdf, const SurfaceInteraction3f &si, Mask active) {
                  return bsdf->eval_diffuse_reflectance(si, active);
              }, "si"_a, "active"_a = true, D(BSDF, eval_diffuse_reflectance))
+        .def("is_delta", [](Ptr bsdf) { return bsdf->is_delta(); }, D(BSDF, is_delta))
         .def("flags", [](Ptr bsdf) { return bsdf->flags(); }, D(BSDF, flags))
         .def("needs_differentials",
              [](Ptr bsdf) { return bsdf->needs_differentials(); },
@@ -127,6 +128,7 @@ MI_PY_EXPORT(BSDF) {
 
     auto bsdf = MI_PY_TRAMPOLINE_CLASS(PyBSDF, BSDF, Object)
         .def(py::init<const Properties&>(), "props"_a)
+        .def("is_delta", &BSDF::is_delta, D(BSDF, is_delta))
         .def("flags", py::overload_cast<size_t, Mask>(&BSDF::flags, py::const_),
             "index"_a, "active"_a = true, D(BSDF, flags, 2))
         .def_method(BSDF, component_count, "active"_a = true)
