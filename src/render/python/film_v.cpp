@@ -52,6 +52,10 @@ public:
         PYBIND11_OVERRIDE_PURE(ref<ImageBlock>, Film, create_block, size, normalize, border);
     }
 
+    ref<ImageBlock> divide_by_weight(const ImageBlock *block) const override {
+        PYBIND11_OVERRIDE_PURE(ref<ImageBlock>, Film, divide_by_weight, block);
+    }
+
     std::string to_string() const override {
         PYBIND11_OVERRIDE_PURE(std::string, Film, to_string,);
     }
@@ -106,6 +110,7 @@ MI_PY_EXPORT(Film) {
             D(Film, prepare_sample))
         .def_method(Film, create_block, "size"_a = ScalarVector2u(0, 0),
                     "normalize"_a = false, "borders"_a = false)
+        .def_method(Film, divide_by_weight, "block"_a)
         .def_method(Film, schedule_storage)
         .def_method(Film, sensor_response_function)
         .def_method(Film, flags);

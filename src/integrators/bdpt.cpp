@@ -13,7 +13,7 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
-// TODO: Expose BDPT-related functions and structs to Python
+// TODO: Not making full use of GPU
 
 template <typename Float, typename Spectrum>
 class BDPTIntegrator : public MonteCarloIntegrator<Float, Spectrum> {
@@ -80,17 +80,29 @@ public:
         auto [spec, valid] = sample(
             scene, sensor, sampler, ray, wav_weight, block, sample_scale, active
             );
+        block->set_coalesce(coalesce);
 
 #if defined(CONNECT) || defined(USE_MIS)
         spec *= ray_weight;
 #ifdef CONNECT
-        spec *= sample_scale;
-        Float weight = 0.f;
+        Float weight;
+        ref<ImageBlock> block_accum;
+        if constexpr (dr::is_jit_v<Float>) {
+            weight = 1.f;
+            block_accum = new ImageBlock(
+                block->size(), block->offset(), block->channel_count(),
+                block->rfilter(), block->border_size() != 0u, false,
+                block->coalesce(), block->compensate(), block->warn_negative(),
+                block->warn_invalid());
+        }
+        else {
+            spec *= sample_scale;
+            weight = 0.f;
+        }
 #else
         block->set_normalize(false);
         Float weight = 1.f;
 #endif
-        block->set_coalesce(coalesce);
 
         UnpolarizedSpectrum spec_u = unpolarized_spectrum(spec);
 
@@ -112,10 +124,16 @@ public:
         } else {
             aovs[3] = weight;
         }
-        //
 
         // With box filter, ignore random offset to prevent numerical instabilities
-        block->put(box_filter ? pos : sample_pos, aovs, active);
+        if constexpr (dr::is_jit_v<Float>) {
+            block_accum->put(box_filter ? pos : sample_pos, aovs, active);
+            block_accum = sensor->film()->divide_by_weight(block_accum);
+            block->put_block(block_accum);
+        }
+        else {
+            block->put(box_filter ? pos : sample_pos, aovs, active);
+        }
 #else
         DRJIT_MARK_USED(has_alpha);
         DRJIT_MARK_USED(box_filter);
@@ -390,7 +408,7 @@ public:
      *    Number of valid vertices stored
      */
     // TODO: Delta lights ignored for now
-    // TODO: Can we apply Russian Roulette?
+    // TODO: Apply Russian Roulette
     UInt32 random_walk(BSDFContext bsdf_ctx,
                        const Scene *scene,
                        Sampler *sampler,
@@ -790,7 +808,6 @@ public:
             sum_ri += ri_light;
             i_light--;
         }
-
 
         // If there are more than 1 camera vertex,
         // we have to correct the reverse PDF

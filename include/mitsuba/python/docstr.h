@@ -2454,6 +2454,8 @@ static const char *__doc_mitsuba_Endpoint_operator_new = R"doc()doc";
 
 static const char *__doc_mitsuba_Endpoint_operator_new_2 = R"doc()doc";
 
+static const char *__doc_mitsuba_Endpoint_parameters_changed = R"doc()doc";
+
 static const char *__doc_mitsuba_Endpoint_pdf_direction =
 R"doc(Evaluate the probability density of the *direct* sampling method
 implemented by the sample_direction() method.
@@ -2939,6 +2941,13 @@ static const char *__doc_mitsuba_Film_crop_offset = R"doc(Return the offset of t
 static const char *__doc_mitsuba_Film_crop_size = R"doc(Return the size of the crop window)doc";
 
 static const char *__doc_mitsuba_Film_develop = R"doc(Return a image buffer object storing the developed image)doc";
+
+static const char *__doc_mitsuba_Film_divide_by_weight =
+R"doc(Return an ImageBlock instance with normalized values and empty weight
+channel
+
+Parameter ``block``:
+    ImageBlock to normalize)doc";
 
 static const char *__doc_mitsuba_Film_flags = R"doc(Flags for all properties combined.)doc";
 

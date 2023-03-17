@@ -131,6 +131,14 @@ public:
                                          bool normalize = false,
                                          bool border = false) = 0;
 
+    /**
+     * \brief Return an \ref ImageBlock instance with normalized values and empty weight channel
+     *
+     * \param block
+     *   \ref ImageBlock to normalize
+     */
+    virtual ref<ImageBlock> divide_by_weight(const ImageBlock *block) const = 0;
+
     // =============================================================
     //! @{ \name Accessor functions
     // =============================================================
