@@ -78,6 +78,9 @@ MI_PY_EXPORT(Scene) {
         .def("sample_emitter_ray", &Scene::sample_emitter_ray,
              "time"_a, "sample1"_a, "sample2"_a, "sample3"_a, "active"_a,
              D(Scene, sample_emitter_ray))
+        .def("expand_bbox", &Scene::expand_bbox,
+            "bbox"_a,
+            D(Scene, expand_bbox))
         // Accessors
         .def_method(Scene, bbox)
         .def("sensors",

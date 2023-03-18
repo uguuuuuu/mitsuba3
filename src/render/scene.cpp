@@ -292,6 +292,33 @@ MI_VARIANT Spectrum Scene<Float, Spectrum>::eval_emitter_direction(
     return ds.emitter->eval_direction(ref, ds, active);
 }
 
+MI_VARIANT
+void Scene<Float, Spectrum>::expand_bbox(const BoundingBox3f &bbox) {
+    ScalarBoundingBox3f scalar_bbox;
+    if constexpr (dr::is_jit_v<Float>) {
+        ScalarPoint3f min = dr::slice(bbox.min);
+        ScalarPoint3f max = dr::slice(bbox.max);
+        scalar_bbox = ScalarBoundingBox3f(min, max);
+    }
+    else {
+        scalar_bbox = bbox;
+    }
+    m_bbox.expand(scalar_bbox);
+
+    for (Emitter *e : m_emitters) {
+        e->set_scene(this);
+    }
+    for (Shape *s : m_shapes) {
+        if (s->is_mesh()) {
+            Mesh *m = dynamic_cast<Mesh *>(s);
+            m->set_scene(this);
+        }
+    }
+    for (Sensor *s : m_sensors) {
+        s->set_scene(this);
+    }
+}
+
 MI_VARIANT void Scene<Float, Spectrum>::traverse(TraversalCallback *callback) {
     for (auto& child : m_children) {
         std::string id = child->id();

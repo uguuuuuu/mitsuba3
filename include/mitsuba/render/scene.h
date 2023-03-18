@@ -442,6 +442,14 @@ public:
                                     const DirectionSample3f &ds,
                                     Mask active = true) const;
 
+    /**
+     * \brief Expand the scene's bounding box
+     *
+     * \param bbox
+     *    Bounding box that the scene's bounding box will contain after expanding
+     */
+    void expand_bbox(const BoundingBox3f &bbox);
+
     //! @}
     // =============================================================
 

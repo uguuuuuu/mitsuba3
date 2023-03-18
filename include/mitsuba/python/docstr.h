@@ -6474,6 +6474,13 @@ Returns:
     The incident radiance and discrete or solid angle density of the
     sample.)doc";
 
+static const char *__doc_mitsuba_Scene_expand_bbox =
+R"doc(Expand the scene's bounding box
+
+Parameter ``bbox``:
+    Bounding box that the scene's bounding box will contain after
+    expanding)doc";
+
 static const char *__doc_mitsuba_Scene_integrator = R"doc(Return the scene's integrator)doc";
 
 static const char *__doc_mitsuba_Scene_integrator_2 = R"doc(Return the scene's integrator)doc";
