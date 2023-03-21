@@ -53,7 +53,7 @@ public:
     }
 
     ref<ImageBlock> divide_by_weight(const ImageBlock *block) const override {
-        PYBIND11_OVERRIDE_PURE(ref<ImageBlock>, Film, divide_by_weight, block);
+        PYBIND11_OVERRIDE(ref<ImageBlock>, Film, divide_by_weight, block);
     }
 
     std::string to_string() const override {

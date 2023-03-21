@@ -1,6 +1,7 @@
 #include <mitsuba/render/film.h>
 #include <mitsuba/core/plugin.h>
 #include <mitsuba/core/properties.h>
+#include <mitsuba/render/imageblock.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -51,6 +52,45 @@ MI_VARIANT Film<Float, Spectrum>::Film(const Properties &props) : Object() {
 }
 
 MI_VARIANT Film<Float, Spectrum>::~Film() { }
+
+MI_VARIANT ref<typename Film<Float, Spectrum>::ImageBlock>
+Film<Float, Spectrum>::divide_by_weight(const ImageBlock *block) const {
+    if constexpr (dr::is_jit_v<Float>) {
+        Float data = block->tensor().array().copy();
+        uint32_t source_ch = (uint32_t) block->channel_count();
+        uint32_t pixel_count = dr::prod(block->size());
+        ScalarVector2i size = block->size();
+
+        bool alpha = has_flag(m_flags, FilmFlags::Alpha);
+        uint32_t base_ch = alpha ? 5 : 4;
+
+        UInt32 idx         = dr::arange<UInt32>(pixel_count * source_ch),
+               pixel_idx   = idx / source_ch,
+               channel_idx = dr::fmadd(pixel_idx, uint32_t(-(int) source_ch), idx);
+
+        UInt32 weight_idx = dr::fmadd(pixel_idx, source_ch, base_ch - 1);
+        Float weight = dr::gather<Float>(data, weight_idx);
+
+        // Clear weight channel
+        dr::scatter(data, Float(0.f), weight_idx, dr::eq(channel_idx, base_ch - 1));
+        // Normalize
+        data /= dr::select(dr::eq(weight, 0.f), 1.f, weight);
+
+        size_t shape[3] = { (size_t) size.y(), (size_t) size.x(),
+                            source_ch };
+        TensorXf tensor = TensorXf(data, 3, shape);
+        return new ImageBlock(tensor, block->offset(), block->rfilter(),
+                              block->border_size() != 0u,
+                              block->normalize(),
+                              block->coalesce(),
+                              block->compensate(),
+                              block->warn_negative(),
+                              block->warn_invalid());
+    }
+    else {
+        Throw("Don't use divide_by_weight in scalar mode");
+    }
+}
 
 MI_VARIANT void Film<Float, Spectrum>::traverse(TraversalCallback *callback) {
     callback->put_parameter("size", m_size, +ParamFlags::NonDifferentiable);

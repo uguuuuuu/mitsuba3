@@ -137,7 +137,7 @@ public:
      * \param block
      *   \ref ImageBlock to normalize
      */
-    virtual ref<ImageBlock> divide_by_weight(const ImageBlock *block) const = 0;
+    virtual ref<ImageBlock> divide_by_weight(const ImageBlock *block) const;
 
     // =============================================================
     //! @{ \name Accessor functions
