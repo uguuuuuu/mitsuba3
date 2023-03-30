@@ -36,7 +36,11 @@ MI_VARIANT Scene<Float, Spectrum>::Scene(const Properties &props) {
                 m_emitters.push_back(shape->emitter());
             if (shape->is_sensor())
                 m_sensors.push_back(shape->sensor());
-            if (shape->is_shapegroup()) {
+            // Hack to make SDFs work
+            if (shape->id().find("_sdf_") != std::string::npos) {
+                m_implicit = shape;
+            }
+            else if (shape->is_shapegroup()) {
                 m_shapegroups.push_back((ShapeGroup*)shape);
             } else {
                 m_bbox.expand(shape->bbox());
@@ -81,6 +85,11 @@ MI_VARIANT Scene<Float, Spectrum>::Scene(const Properties &props) {
     m_shapes_dr = dr::load<DynamicBuffer<ShapePtr>>(
         m_shapes.data(), m_shapes.size());
 
+    if (m_implicit)
+        m_implicit_dr = ShapePtr(m_implicit.get());
+    else
+        m_implicit_dr = dr::zeros<ShapePtr>();
+
     m_emitters_dr = dr::load<DynamicBuffer<EmitterPtr>>(
         m_emitters.data(), m_emitters.size());
 
@@ -103,6 +112,7 @@ MI_VARIANT Scene<Float, Spectrum>::~Scene() {
     m_children.clear();
     m_integrator = nullptr;
     m_environment = nullptr;
+    m_implicit = nullptr;
 
     if constexpr (dr::is_jit_v<Float>) {
         // Clean up JIT pointer registry now that the above has happened

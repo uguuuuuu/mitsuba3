@@ -58,7 +58,7 @@ MI_PY_EXPORT(xml) {
 
             return single_object_or_list(objects);
         },
-        "path"_a, "update_scene"_a = false, "parallel"_a = true,
+        "path"_a, "update_scene"_a = false, "parallel"_a = false,
         D(xml, load_file));
 
     m.def(

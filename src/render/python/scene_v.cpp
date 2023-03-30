@@ -100,6 +100,7 @@ MI_PY_EXPORT(Scene) {
         .def("emitters", py::overload_cast<>(&Scene::emitters), D(Scene, emitters))
         .def("emitters_dr", &Scene::emitters_dr, D(Scene, emitters_dr))
         .def("shapes_dr", &Scene::shapes_dr, D(Scene, shapes_dr))
+        .def("implicit_dr", &Scene::implicit_dr, D(Scene, implicit_dr))
         .def_method(Scene, environment)
         .def("shapes",
              [](const Scene &scene) {
@@ -114,6 +115,16 @@ MI_PY_EXPORT(Scene) {
                  return result;
              },
              D(Scene, shapes))
+        .def("implicit",
+            [](const Scene &scene) {
+                const Shape *s = scene.implicit();
+                const Mesh *m = dynamic_cast<const Mesh *>(s);
+                if (m)
+                    return py::cast(m);
+                else
+                    return py::cast(s);
+            },
+            D(Scene, implicit))
         .def("integrator",
              [](Scene &scene) -> py::object {
                  Integrator *o = scene.integrator();

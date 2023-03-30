@@ -6481,6 +6481,12 @@ Parameter ``bbox``:
     Bounding box that the scene's bounding box will contain after
     expanding)doc";
 
+static const char *__doc_mitsuba_Scene_implicit = R"doc(Return the implicit shape)doc";
+
+static const char *__doc_mitsuba_Scene_implicit_2 = R"doc(Return the implicit shape)doc";
+
+static const char *__doc_mitsuba_Scene_implicit_dr = R"doc(Return the implicit shape as an Dr.Jit array)doc";
+
 static const char *__doc_mitsuba_Scene_integrator = R"doc(Return the scene's integrator)doc";
 
 static const char *__doc_mitsuba_Scene_integrator_2 = R"doc(Return the scene's integrator)doc";
@@ -6500,6 +6506,10 @@ static const char *__doc_mitsuba_Scene_m_emitters = R"doc()doc";
 static const char *__doc_mitsuba_Scene_m_emitters_dr = R"doc()doc";
 
 static const char *__doc_mitsuba_Scene_m_environment = R"doc()doc";
+
+static const char *__doc_mitsuba_Scene_m_implicit = R"doc()doc";
+
+static const char *__doc_mitsuba_Scene_m_implicit_dr = R"doc()doc";
 
 static const char *__doc_mitsuba_Scene_m_integrator = R"doc()doc";
 

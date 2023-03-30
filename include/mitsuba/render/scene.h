@@ -478,6 +478,11 @@ public:
     /// Return the list of shapes
     const std::vector<ref<Shape>> &shapes() const { return m_shapes; }
 
+    /// Return the implicit shape
+    Shape *implicit() { return m_implicit; }
+    /// Return the implicit shape
+    const Shape *implicit() const { return m_implicit; }
+
     /// Return the scene's integrator
     Integrator* integrator() { return m_integrator; }
     /// Return the scene's integrator
@@ -488,6 +493,9 @@ public:
 
     /// Return the list of shapes as an Dr.Jit array
     const DynamicBuffer<ShapePtr> &shapes_dr() const { return m_shapes_dr; }
+
+    /// Return the implicit shape as an Dr.Jit array
+    const ShapePtr &implicit_dr() const { return m_implicit_dr; }
 
     //! @}
     // =============================================================
@@ -574,6 +582,8 @@ protected:
     DynamicBuffer<EmitterPtr> m_emitters_dr;
     std::vector<ref<Shape>> m_shapes;
     DynamicBuffer<ShapePtr> m_shapes_dr;
+    ref<Shape> m_implicit;
+    ShapePtr m_implicit_dr;
     std::vector<ref<ShapeGroup>> m_shapegroups;
     std::vector<ref<Sensor>> m_sensors;
     std::vector<ref<Object>> m_children;

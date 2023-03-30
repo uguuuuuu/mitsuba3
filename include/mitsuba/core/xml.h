@@ -35,7 +35,7 @@ extern MI_EXPORT_LIB std::vector<ref<Object>> load_file(
                                         const std::string &variant,
                                         ParameterList parameters = ParameterList(),
                                         bool update_scene = false,
-                                        bool parallel = true);
+                                        bool parallel = false);
 
 /// Load a Mitsuba scene from an XML string
 extern MI_EXPORT_LIB std::vector<ref<Object>> load_string(
