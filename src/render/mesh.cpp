@@ -339,6 +339,11 @@ MI_VARIANT void Mesh<Float, Spectrum>::recompute_vertex_normals() {
 
         normals = dr::normalize(normals);
 
+        // Disconnect the vertex normal buffer from any pre-existing AD
+        // graph. Otherwise an AD graph might be unnecessarily retained
+        // here, despite the following lines re-initializing the normals.
+        dr::disable_grad(m_vertex_normals);
+
         UInt32 ni = dr::arange<UInt32>(m_vertex_count) * 3;
         for (size_t i = 0; i < 3; ++i)
             dr::scatter(m_vertex_normals,
@@ -905,17 +910,21 @@ MI_VARIANT void Mesh<Float, Spectrum>::add_attribute(const std::string& name,
     m_mesh_attributes.insert({ name, { dim, type, buffer } });
 }
 
+MI_VARIANT typename Mesh<Float, Spectrum>::Mask
+Mesh<Float, Spectrum>::has_attribute(const std::string& name, Mask active) const {
+    const auto& it = m_mesh_attributes.find(name);
+    if (it == m_mesh_attributes.end())
+        return Base::has_attribute(name, active);
+    return true;
+}
+
 MI_VARIANT typename Mesh<Float, Spectrum>::UnpolarizedSpectrum
 Mesh<Float, Spectrum>::eval_attribute(const std::string& name,
                                       const SurfaceInteraction3f &si,
                                       Mask active) const {
     const auto& it = m_mesh_attributes.find(name);
-    if (it == m_mesh_attributes.end()) {
-        if constexpr (dr::is_jit_v<Float>)
-            return 0.f;
-        else
-            Throw("Invalid attribute requested %s.", name.c_str());
-    }
+    if (it == m_mesh_attributes.end())
+        return Base::eval_attribute(name, si, active);
 
     const auto& attr = it->second;
     if (attr.size == 1)
@@ -939,12 +948,8 @@ Mesh<Float, Spectrum>::eval_attribute_1(const std::string& name,
                                         const SurfaceInteraction3f &si,
                                         Mask active) const {
     const auto& it = m_mesh_attributes.find(name);
-    if (it == m_mesh_attributes.end()) {
-        if constexpr (dr::is_jit_v<Float>)
-            return 0.f;
-        else
-            Throw("Invalid attribute requested %s.", name.c_str());
-    }
+    if (it == m_mesh_attributes.end())
+        return Base::eval_attribute_1(name, si, active);
 
     const auto& attr = it->second;
     if (attr.size == 1) {
@@ -962,12 +967,8 @@ Mesh<Float, Spectrum>::eval_attribute_3(const std::string& name,
                                         const SurfaceInteraction3f &si,
                                         Mask active) const {
     const auto& it = m_mesh_attributes.find(name);
-    if (it == m_mesh_attributes.end()) {
-        if constexpr (dr::is_jit_v<Float>)
-            return 0.f;
-        else
-            Throw("Invalid attribute requested %s.", name.c_str());
-    }
+    if (it == m_mesh_attributes.end())
+        return Base::eval_attribute_3(name, si, active);
 
     const auto& attr = it->second;
     if (attr.size == 3) {
