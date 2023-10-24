@@ -646,7 +646,7 @@ MI_VARIANT void ImageBlock<Float, Spectrum>::read(const Point2f &pos_,
         }
 
         // Normalize sample contribution if desired
-        if (unlikely(m_normalize)) {
+        if (m_normalize) {
             Float wx = 0.f, wy = 0.f;
 
             for (uint32_t i = 0; i < count.x(); ++i)
