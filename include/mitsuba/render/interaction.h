@@ -802,7 +802,7 @@ struct Vertex : Interaction<Float_, Spectrum_> {
            Float pdf,
            Spectrum throughput)
         : Base(0.f, ray.time, ray.wavelengths, ray.o, ps.n, ps.J),
-          shape(emitter->shape()), emitter(emitter), uv(ps.uv),
+          shape(nullptr), emitter(emitter), uv(ps.uv),
           sh_frame(Frame3f(ps.n)), wi(0.f), pdf_fwd(pdf), pdf_rev(0.f),
           throughput(throughput) {}
 
